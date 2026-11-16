@@ -113,7 +113,13 @@ jobs:
             --name "OOS-AOSP-Panels-release-$BUILD_ATTEMPT" --dir dist
           flags=()
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          # Optional user-facing notes live in the release commit, never in README.
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" \
+            --jq '.commit.message | split("\n\nRelease notes:\n") | if length > 1 then .[1:] | join("\n\nRelease notes:\n") else "" end' > "$notes_file"
+          printf '\nBuilt from %s. [GitHub Actions run](%s/%s/actions/runs/%s).\n' \
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes_file"
           gh release create "v$VERSION" "dist/OOS-AOSP-Panels-$VERSION.apk" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "OOS AOSP Panels $VERSION" "${flags[@]}" \
-            --notes "Built from $GITHUB_SHA. [GitHub Actions run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            --notes-file "$notes_file"

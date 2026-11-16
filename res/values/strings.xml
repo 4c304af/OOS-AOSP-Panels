@@ -18,6 +18,9 @@
     <string name="flashlight_desc">Adjust the flashlight level</string>
     <string name="ime">Keyboard picker</string>
     <string name="ime_desc">Switch keyboards with the AOSP picker</string>
+    <string name="permission_dialogs">AOSP permission dialogs</string>
+    <string name="permission_dialogs_desc">Select Permission Controller in this module’s LSPosed scope and restart the phone for first use. The Restart System UI button only restarts the notification panel. Later changes to this switch apply to the next permission request.</string>
+    <string name="permission_dialogs_not_seen">No permission dialog observed yet. Check the Permission Controller scope and restart the phone after adding it.</string>
     <string name="try_hint">Try a panel before replacing its system shortcut.</string>
     <string name="root_pending">Requesting root access…</string>
     <string name="restart_ui">Restart System UI</string>

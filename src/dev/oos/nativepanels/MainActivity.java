@@ -174,6 +174,9 @@ public final class MainActivity extends AppCompatActivity {
     feature(page, CombinedQsSettings.MOBILE_ORDER, getString(R.string.mobile_order), getString(R.string.mobile_order_desc),
         R.drawable.ic_mobile_signal, com.google.android.material.R.attr.colorSecondaryContainer,
         com.google.android.material.R.attr.colorOnSecondaryContainer);
+    feature(page, CombinedQsSettings.PERMISSION_DIALOG, getString(R.string.permission_dialogs), getString(R.string.permission_dialogs_desc),
+        R.drawable.ic_privacy, com.google.android.material.R.attr.colorTertiaryContainer,
+        com.google.android.material.R.attr.colorOnTertiaryContainer);
     oosGroup = column();
     page.addView(oosGroup, new LinearLayout.LayoutParams(-1,-2));
     groupHidden = CombinedQsSettings.enabled(this);
@@ -420,7 +423,7 @@ public final class MainActivity extends AppCompatActivity {
     copy.setOnClickListener(
         v -> {
           getSystemService(ClipboardManager.class)
-              .setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), report));
+              .setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), diagnosticReport()));
           Snackbar.make(scroll, getString(R.string.log_copied), Snackbar.LENGTH_SHORT).show();
         });
     LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, dp(52), 1);
@@ -430,7 +433,7 @@ public final class MainActivity extends AppCompatActivity {
     MaterialCardView box =
         card(color(com.google.android.material.R.attr.colorSurfaceContainer), 24);
     margin(box, 18, 0);
-    reportView = label(report, 13, false);
+    reportView = label(diagnosticReport(), 13, false);
     reportView.setTypeface(Typeface.MONOSPACE);
     reportView.setTextIsSelectable(true);
     reportView.setPadding(dp(18), dp(18), dp(18), dp(18));
@@ -509,6 +512,10 @@ public final class MainActivity extends AppCompatActivity {
     return getString(R.string.disconnected) + "\n\n" + getString(R.string.saved_diagnostics, when) + "\n" + saved.text();
   }
 
+  private String diagnosticReport() {
+    return report + "\n\n" + PermissionDialogSettings.diagnostic(this);
+  }
+
   private void request(String command, String feature, boolean enabled) {
     Intent intent =
         new Intent(Protocol.ACTION)
@@ -563,7 +570,7 @@ public final class MainActivity extends AppCompatActivity {
     MaterialSwitch ime = switches.get("ime");
     if (ime != null) ime.setEnabled(imeReadable);
     updating = false;
-    if (reportView != null) reportView.setText(report);
+    if (reportView != null) reportView.setText(diagnosticReport());
   }
 
   private int color(int attr) {

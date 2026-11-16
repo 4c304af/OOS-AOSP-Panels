@@ -10,8 +10,9 @@ final class CombinedQsSettings {
   // Preserve the status bar switch across upgrades from 0.6.19.
   static final String HOME_BATTERY = "native_status_icons";
   static final String MOBILE_ORDER = "mobile_type_before_signal";
+  static final String PERMISSION_DIALOG = "native_permission_dialog";
   static boolean standalone(String key) {
-    return HOME_BATTERY.equals(key) || MOBILE_ORDER.equals(key);
+    return HOME_BATTERY.equals(key) || MOBILE_ORDER.equals(key) || PERMISSION_DIALOG.equals(key);
   }
 
   static final Uri URI = Uri.parse("content://" + AUTHORITY);
@@ -30,7 +31,7 @@ final class CombinedQsSettings {
   }
 
   static boolean setEnabled(Context context, String key, boolean enabled) {
-    // The user can immediately restart System UI from the next button.
+    // Persist before a host process starts or creates its next dialog.
     return settings(context).edit().putBoolean(key, enabled).commit();
   }
 

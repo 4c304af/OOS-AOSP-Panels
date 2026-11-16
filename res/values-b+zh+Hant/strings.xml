@@ -18,6 +18,9 @@
     <string name="flashlight_desc">調整手電筒的亮度</string>
     <string name="ime">輸入法選單</string>
     <string name="ime_desc">開啟替換後，切換鍵盤時使用原生選單</string>
+    <string name="permission_dialogs">AOSP 權限授權視窗</string>
+    <string name="permission_dialogs_desc">首次使用時，請在 LSPosed 的模組作用域勾選「權限控制器」並重啟手機。「重啟系統介面」按鈕只會重啟通知面板。之後切換此開關，會在下一次權限請求生效。</string>
+    <string name="permission_dialogs_not_seen">尚未觀察到授權視窗。請確認已勾選「權限控制器」作用域，新增後需重啟手機。</string>
     <string name="try_hint">可先試用面板，再開啟入口替換。</string>
     <string name="root_pending">正在取得 root 權限…</string>
     <string name="restart_ui">重啟系統介面</string>

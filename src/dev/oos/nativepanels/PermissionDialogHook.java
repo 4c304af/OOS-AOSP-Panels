@@ -1,0 +1,73 @@
+package dev.oos.nativepanels;
+
+import android.app.Activity;
+import android.content.Context;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import io.github.libxposed.api.XposedInterface;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+
+/** Restores the Google controller's own grant UI, leaving all permission decisions untouched. */
+final class PermissionDialogHook {
+  static final String PACKAGE = "com.google.android.permissioncontroller";
+  private static final String UI = "com.android.permissioncontroller.permission.ui.";
+  private final ModuleEntry module;
+  private final ClassLoader loader;
+  private final PermissionDialogInflation inflation = new PermissionDialogInflation();
+  private final PermissionDialogResources resources = new PermissionDialogResources();
+
+  PermissionDialogHook(ModuleEntry module, ClassLoader loader) {
+    this.module = module;
+    this.loader = loader;
+  }
+
+  void install() throws ReflectiveOperationException {
+    Class<?> activityType = Class.forName(UI + "GrantPermissionsActivity", false, loader);
+    Class<?> handlerType = Class.forName(UI + "handheld.GrantPermissionsViewHandlerImpl", false, loader);
+    Field activityField = Reflect.field(handlerType, "mActivity");
+    Method createView = handlerType.getDeclaredMethod("createView");
+    if (!Activity.class.isAssignableFrom(activityType)
+        || !Activity.class.isAssignableFrom(activityField.getType())
+        || !View.class.isAssignableFrom(createView.getReturnType()))
+      throw new NoSuchMethodException("Unsupported permission grant view signature");
+
+    Method from = LayoutInflater.class.getMethod("from", Context.class);
+    module.hook(from).setId("native-panels:permission-inflater")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          LayoutInflater original = (LayoutInflater)c.proceed();
+          try { return inflation.select((Context)c.getArg(0), original); }
+          catch (RuntimeException failure) {
+            module.log(Log.WARN, "OOSNativePanels", "Permission inflater kept original context", failure);
+            return original;
+          }
+        });
+    // LayoutInflater.from is small enough to have been inlined into this caller.
+    if (!module.deoptimize(createView))
+      module.log(Log.WARN, "OOSNativePanels", "Permission view deoptimization unavailable", null);
+    module.hook(createView).setId("native-panels:permission-view")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          Activity activity = (Activity)activityField.get(c.getThisObject());
+          if (!activityType.isInstance(activity)) return c.proceed();
+          if (!PermissionDialogSettings.readEnabled(activity)) {
+            PermissionDialogSettings.report(activity, "Grant UI: original (switch off or settings unavailable)");
+            return c.proceed();
+          }
+          Context presentation;
+          try { presentation = resources.create(activity); }
+          catch (RuntimeException | java.io.IOException failure) {
+            module.log(Log.WARN, "OOSNativePanels", "Permission UI kept original resources", failure);
+            PermissionDialogSettings.report(activity, "Grant UI: original\n" + failure);
+            return c.proceed();
+          }
+          // The unmodified handler chooses its layout and binds the original result
+          // listener, SecureButtons, location controls and grant/deny actions.
+          Object view = inflation.run(activity, presentation, c::proceed);
+          boolean applied = view instanceof View root && root.getResources() == presentation.getResources();
+          PermissionDialogSettings.report(activity, "Package: " + activity.getPackageName()
+              + "\nGrant UI: " + (applied ? "native APK resources" : "original (inflater not reached)"));
+          return view;
+        });
+  }
+}

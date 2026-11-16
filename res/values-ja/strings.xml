@@ -18,6 +18,9 @@
     <string name="flashlight_desc">ライトの明るさを調整</string>
     <string name="ime">入力方法の選択</string>
     <string name="ime_desc">キーボードの切り替えに AOSP の選択画面を使う</string>
+    <string name="permission_dialogs">AOSP 権限ダイアログ</string>
+    <string name="permission_dialogs_desc">初回は LSPosed のモジュール対象で「権限コントローラ」を選択し、端末を再起動してください。「システム UI を再起動」ボタンは通知パネルのみを再起動します。その後のスイッチ変更は次の権限リクエストから適用されます。</string>
+    <string name="permission_dialogs_not_seen">権限ダイアログはまだ検出されていません。モジュール対象に「権限コントローラ」を追加し、端末を再起動してください。</string>
     <string name="try_hint">パネルの動作を確認してから、置き換えを有効にしてください。</string>
     <string name="root_pending">root 権限をリクエスト中…</string>
     <string name="restart_ui">システム UI を再起動</string>
