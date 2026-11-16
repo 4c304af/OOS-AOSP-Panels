@@ -48,7 +48,7 @@ final class NotificationCards {
   private View shadeRoot;
   private int attachEvents, rowDraws, scannedRows, matchedPeak, visiblePeak, drawsThisPull;
   private Class<?> rowType;
-  private Method childrenContainer, childrenExpanded, expansionChanging;
+  private Method childrenContainer, childrenExpanded, expansionChanging, notificationParent, childrenAnimating;
   private Field groupHidesBackground, userExpanding;
   private Method groupChild, groupSummary, headsUp, entry, sbn, privateLayout, contracted, expanded;
   private Method entryAdapter, adapterSbn, adapterColorized, adapterBundle, notificationColorized, currentTint, showingLayout, contentTint;
@@ -74,6 +74,8 @@ final class NotificationCards {
     childrenContainer = rowType.getMethod("getChildrenContainer");
     childrenExpanded = rowType.getMethod("areChildrenExpanded");
     expansionChanging = rowType.getMethod("isGroupExpansionChanging");
+    notificationParent = optional(rowType, "getNotificationParent");
+    childrenAnimating = optional(rowType, "isChildrenExpandedAnimating");
     groupHidesBackground = Reflect.field(rowType, "mShowNoBackground");
     userExpanding = Reflect.field(rowType, "mIsUserSwipingToExpandRow");
     headsUp = rowType.getMethod("isHeadsUpState");
@@ -182,11 +184,25 @@ final class NotificationCards {
   }
 
   private boolean restricted(View row) throws ReflectiveOperationException {
-    if (onKeyguard.getBoolean(row) || showingPublic.getBoolean(row) || (boolean)headsUp.invoke(row)
-        || (boolean)groupChild.invoke(row)) return true;
+    if (restrictedSurface(row)) return true;
+    if ((boolean)groupChild.invoke(row)) {
+      View parent = notificationParent == null ? null : (View)notificationParent.invoke(row);
+      // The expanded summary normally hides its own background. Only its children
+      // get a replacement, after the group's layout and animation have settled.
+      return parent == null || restrictedSurface(parent) || groupHidesBackground.getBoolean(row)
+          || !(boolean)childrenExpanded.invoke(parent) || (boolean)expansionChanging.invoke(parent)
+          || userExpanding.getBoolean(parent)
+          || (childrenAnimating != null && (boolean)childrenAnimating.invoke(parent))
+          || (boolean)gutsExposed.invoke(parent) || (boolean)launchRunning.invoke(parent)
+          || (appearing != null && appearing.getBoolean(parent));
+    }
     if (!(boolean)groupSummary.invoke(row)) return false;
     return !ownsCollapsedGroup((boolean)childrenExpanded.invoke(row), (boolean)expansionChanging.invoke(row),
         userExpanding.getBoolean(row), groupHidesBackground.getBoolean(row));
+  }
+
+  private boolean restrictedSurface(View row) throws ReflectiveOperationException {
+    return onKeyguard.getBoolean(row) || showingPublic.getBoolean(row) || (boolean)headsUp.invoke(row);
   }
 
   // OOS hides the parent's background during split animations and for system bundles
@@ -298,7 +314,7 @@ final class NotificationCards {
           View bg = (View)background.get(row);
           if (bg == null) continue;
           View small = null, large = null;
-          if (surface == Surface.STANDARD && !(boolean)groupSummary.invoke(row)) {
+          if (surface == Surface.STANDARD && !(boolean)groupSummary.invoke(row) && !(boolean)groupChild.invoke(row)) {
             Object layout = privateLayout.invoke(row);
             if (layout != null) {
               small = findTemplate((View)contracted.invoke(layout), true);
@@ -336,12 +352,12 @@ final class NotificationCards {
   }
 
   private int discover(View view) {
+    int found = 0;
     if (rowType.isInstance(view)) {
       attached.add(view);
-      // Group children also receive their own attach and draw callbacks.
-      return 1;
+      found++;
     }
-    int found = 0;
+    // Include children of groups that were already attached before the first scan.
     if (view instanceof ViewGroup group)
       for (int i = 0; i < group.getChildCount(); i++) found += discover(group.getChildAt(i));
     return found;
@@ -491,6 +507,11 @@ final class NotificationCards {
     int dp(int dp) { return Math.round(dp * row.getResources().getDisplayMetrics().density); }
 
     boolean drawInRow(Canvas canvas) throws ReflectiveOperationException {
+      boolean child = (boolean)groupChild.invoke(row);
+      if (child && (bg.getVisibility() != View.VISIBLE || bg.getAlpha() <= 0f || drawableAlpha.getInt(bg) <= 0)) {
+        lastPaint = "group background hidden";
+        return false;
+      }
       boolean summary = (boolean)groupSummary.invoke(row);
       View content = summary ? (View)childrenContainer.invoke(row) : null;
       if (content == null || !content.isShown() || content.getAlpha() <= 0f)
@@ -519,7 +540,7 @@ final class NotificationCards {
           && bottomClips.getBoolean(bg) && bottomRounded.getBoolean(bg)) height = visibleBottom;
       boolean right = (boolean)alignRight.invoke(bg);
       int left = right ? anchor.getWidth() - width : 0;
-      prepare(summary);
+      prepare(summary, child);
       int save = canvas.save();
       try {
         canvas.translate(anchor.getLeft(), anchor.getTop());
@@ -533,6 +554,9 @@ final class NotificationCards {
 
     boolean measureStackPosition() {
       try {
+        // The children container owns group roundness; its divider views are not
+        // notification stack seams and must not change the children's corners.
+        if ((boolean)groupChild.invoke(row)) return false;
         if ((inShelf != null && inShelf.getBoolean(row)) || (removing != null && removing.getBoolean(row))
             || (appearing != null && appearing.getBoolean(row)) || (boolean)gutsExposed.invoke(row)
             || (boolean)launchRunning.invoke(row)) return false;
@@ -548,7 +572,7 @@ final class NotificationCards {
       } catch (ReflectiveOperationException e) { return false; }
     }
 
-    void prepare(boolean summary) throws ReflectiveOperationException {
+    void prepare(boolean summary, boolean child) throws ReflectiveOperationException {
       float[] src = (float[])corners.get(bg);
       boolean hasCorners = false;
       for (float radius : src) if (radius > 0f) { hasCorners = true; break; }
@@ -565,7 +589,8 @@ final class NotificationCards {
         if (art.getDrawable(i) instanceof GradientDrawable layer) layer.setCornerRadii(radii);
       int alpha = drawableAlpha.getInt(bg);
       // A vendor can omit its whole background layer on an otherwise visible steady-state row.
-      if (alpha <= 0 || bg.getVisibility() != View.VISIBLE) alpha = 255;
+      if (child) alpha = Math.round(alpha * bg.getAlpha());
+      else if (alpha <= 0 || bg.getVisibility() != View.VISIBLE) alpha = 255;
       if (ripple.getAlpha() != alpha) ripple.setAlpha(alpha);
       ripple.setState(row.getDrawableState());
       ripple.setLayoutDirection(bg.getLayoutDirection());
