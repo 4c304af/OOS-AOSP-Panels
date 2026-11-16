@@ -2,13 +2,13 @@ plugins { id 'com.android.application' version '8.10.1' }
 
 android {
     namespace 'dev.oos.nativepanels'
-    compileSdk 35
+    compileSdk 36
     defaultConfig {
         applicationId 'dev.oos.nativepanels'
         minSdk 30
         targetSdk 35
-        versionCode 58
-        versionName '0.6.46-test'
+        versionCode 59
+        versionName '0.6.47-test'
     }
     buildFeatures { buildConfig true }
     sourceSets {
@@ -49,6 +49,8 @@ android {
 }
 dependencies {
     compileOnly 'io.github.libxposed:api:102.0.0'
+    // Scope requests use the stable service 101 protocol, also supported by API 102 frameworks.
+    implementation 'io.github.libxposed:service:101.0.0'
     implementation 'com.google.android.material:material:1.14.0'
     testRuntimeOnly 'io.github.libxposed:api:102.0.0'
     testImplementation 'junit:junit:4.13.2'

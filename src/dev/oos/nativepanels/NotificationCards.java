@@ -18,12 +18,15 @@ import android.view.WindowManager;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.IdentityHashMap;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -38,10 +41,15 @@ final class NotificationCards {
   private Method rowTranslation;
   private Field inShelf, removing;
   private Card paintedRow;
-  private int replacedThisPull, boundPasses;
+  private int replacedThisPull, tintedThisPull, boundPasses;
+  private final NotificationOverlayRegistry overlayBackgrounds = new NotificationOverlayRegistry();
+  private final Set<Method> overlayDrawMethods = new HashSet<>();
+  private int overlayFlushes, overlayDraws;
+  private String overlayHook = "not installed";
+  private Method overlayDefaultDrawable;
   private String lastPaint = "none";
   private Method actualHeight, bgHeight, bgWidth, alignRight, clipTop, clipBottom;
-  private Method gutsExposed, launchRunning, topRadius, bottomRadius;
+  private Method gutsExposed, launchRunning, userLocked, topRadius, bottomRadius;
   private Field appearing, topOverlap, bottomOverlap, bottomRounded, bottomClips;
   // Rows can move between notification hosts while remaining in the same shade window.
   private final Set<View> attached = Collections.newSetFromMap(new WeakHashMap<>());
@@ -49,6 +57,10 @@ final class NotificationCards {
   private int attachEvents, rowDraws, scannedRows, matchedPeak, visiblePeak, drawsThisPull;
   private Class<?> rowType;
   private Method childrenContainer, childrenExpanded, expansionChanging, notificationParent, childrenAnimating;
+  private Field rowExtension;
+  private Method extensionChildrenAnimating;
+  private Class<?> extensionAnimationType;
+  private Method attachedGroupChildren;
   private Field groupHidesBackground, userExpanding;
   private Method groupChild, groupSummary, headsUp, entry, sbn, privateLayout, contracted, expanded;
   private Method entryAdapter, adapterSbn, adapterColorized, adapterBundle, notificationColorized, currentTint, showingLayout, contentTint;
@@ -72,10 +84,12 @@ final class NotificationCards {
     groupChild = rowType.getMethod("isChildInGroup");
     groupSummary = rowType.getMethod("isSummaryWithChildren");
     childrenContainer = rowType.getMethod("getChildrenContainer");
+    attachedGroupChildren = optional(childrenContainer.getReturnType(), "getAttachedChildren");
     childrenExpanded = rowType.getMethod("areChildrenExpanded");
     expansionChanging = rowType.getMethod("isGroupExpansionChanging");
     notificationParent = optional(rowType, "getNotificationParent");
     childrenAnimating = optional(rowType, "isChildrenExpandedAnimating");
+    rowExtension = Reflect.optionalField(rowType, "mRowEx");
     groupHidesBackground = Reflect.field(rowType, "mShowNoBackground");
     userExpanding = Reflect.field(rowType, "mIsUserSwipingToExpandRow");
     headsUp = rowType.getMethod("isHeadsUpState");
@@ -119,6 +133,7 @@ final class NotificationCards {
     bottomRadius = rowType.getMethod("getBottomCornerRadius");
     gutsExposed = rowType.getMethod("areGutsExposed");
     launchRunning = rowType.getMethod("isExpandAnimationRunning");
+    userLocked = optional(rowType, "isUserLocked");
     appearing = Reflect.optionalField(rowType, "mDrawingAppearAnimation");
     // Only suppress the original child during a pass where its replacement was drawn.
     Method drawChild = Reflect.method(r.type(ROW + "ExpandableOutlineView"), "drawChild", Canvas.class, View.class, long.class);
@@ -128,6 +143,26 @@ final class NotificationCards {
           if (card != null && card.row == c.getThisObject() && card.bg == c.getArg(1)) {
             replacedThisPull++;
             return false;
+          }
+          Card nativeCard = rows.get(c.getThisObject());
+          if (enabled && nativeCard != null && nativeCard.bg == c.getArg(1)
+              && shadeRoot != null && nativeCard.row.getRootView() == shadeRoot) {
+            boolean tint = false;
+            int width = 0, height = 0;
+            try {
+              tint = canTintBackground(nativeCard.row);
+              if (tint) {
+                width = (int)bgWidth.invoke(nativeCard.bg);
+                height = (int)bgHeight.invoke(nativeCard.bg);
+              }
+            } catch (ReflectiveOperationException | RuntimeException failure) {
+              lastPaint = failure.toString();
+            }
+            if (tint) {
+              tintedThisPull++;
+              lastPaint = "native background tinted";
+              return nativeCard.nativeTint.draw((Canvas)c.getArg(0), nativeCard.bg, width, height, c::proceed);
+            }
           }
           return c.proceed();
         });
@@ -168,6 +203,7 @@ final class NotificationCards {
                 lastPaint = "transition or restricted";
                 try {
                   if (!restricted(row) && !(boolean)gutsExposed.invoke(row) && !(boolean)launchRunning.invoke(row)
+                      && !userExpanding.getBoolean(row) && (userLocked == null || !(boolean)userLocked.invoke(row))
                       && (appearing == null || !appearing.getBoolean(row)) && card.drawInRow((Canvas)c.getArg(0))) {
                     lastPaint = "painted";
                     paintedRow = card;
@@ -181,6 +217,90 @@ final class NotificationCards {
           } finally { paintedRow = outer; }
         });
     ready = true;
+    installOverlayBackgrounds(r);
+  }
+
+  private void installOverlayBackgrounds(PanelRuntime runtime) {
+    try {
+      Class<?> overlay = runtime.type("com.oplus.systemui.statusbar.notification.stack.OplusNotificationChildrenContainerOverlayExImpl");
+      Method flush = Reflect.method(overlay, "flushBackground", View.class, rowType, String.class);
+      try {
+        overlayDefaultDrawable = Reflect.method(runtime.type("com.oplusos.systemui.common.blurability.drawable.AutoBlurDrawable"),
+            "getDefaultDrawable");
+      } catch (ReflectiveOperationException | RuntimeException absent) { /* Optional blur wrapper. */ }
+      runtime.module.hook(flush).setId("native-panels:notification-overlay-bind")
+          .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+            Object result = chain.proceed();
+            try {
+              Object target = chain.getArg(0), owner = chain.getArg(1);
+              if (target instanceof View view && owner instanceof View row && rowType.isInstance(row)) {
+                Drawable drawable = view.getBackground();
+                if (drawable != null) {
+                  hookOverlayDrawable(runtime, drawable);
+                  overlayBackgrounds.register(drawable, view, row);
+                  overlayFlushes++;
+                  // Low-Gaussian OOS draws this exact default background again from
+                  // its overlay mask, outside AutoBlurDrawable.draw(). Register only
+                  // that verified wrapper association, never arbitrary child drawables.
+                  if (overlayDefaultDrawable != null && overlayDefaultDrawable.getDeclaringClass().isInstance(drawable)) {
+                    Object fallback = overlayDefaultDrawable.invoke(drawable);
+                    if (fallback instanceof Drawable inner && inner != drawable) {
+                      hookOverlayDrawable(runtime, inner);
+                      overlayBackgrounds.registerDefault(inner, drawable, view, row, overlayDefaultDrawable);
+                    }
+                  }
+                }
+              }
+            } catch (ReflectiveOperationException | RuntimeException unavailable) {
+              overlayHook = "background unavailable: " + unavailable;
+            }
+            return result;
+          });
+      deoptimizeOverlayMethod(runtime, flush);
+      // These direct callers can have inlined flushBackground on an already-running
+      // SystemUI. Missing vendor variants only limit this optional animation path.
+      for (Method method : overlay.getDeclaredMethods()) {
+        String name = method.getName();
+        if (name.equals("onUiModeChanged") || name.equals("getOverlayBlurDrawable")
+            || name.equals("updateOverlayClipping")) deoptimizeOverlayMethod(runtime, method);
+      }
+      try {
+        Class<?> attach = runtime.type(overlay.getName() + "$createOverlayContainer$2$1");
+        deoptimizeOverlayMethod(runtime, Reflect.method(attach, "onViewAttachedToWindow", View.class));
+      } catch (ReflectiveOperationException | RuntimeException absent) { /* Optional vendor caller. */ }
+      overlayHook = "ready";
+    } catch (ReflectiveOperationException | RuntimeException unavailable) {
+      // The independent OOS animation surface is optional; base notifications remain usable.
+      overlayHook = "unavailable: " + unavailable;
+    }
+  }
+
+  private void hookOverlayDrawable(PanelRuntime runtime, Drawable drawable) throws ReflectiveOperationException {
+    Method draw = Reflect.method(drawable.getClass(), "draw", Canvas.class);
+    if (overlayDrawMethods.contains(draw)) return;
+    runtime.module.hook(draw).setId("native-panels:notification-overlay-draw:" + draw.getDeclaringClass().getName())
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Drawable current = (Drawable)chain.getThisObject();
+          View owner = enabled && shadeRoot != null ? overlayBackgrounds.ownerOf(current, shadeRoot) : null;
+          Card card = owner == null ? null : rows.get(owner);
+          boolean tint = false;
+          if (card != null) {
+            try { tint = canTintBackground(owner); }
+            catch (ReflectiveOperationException | RuntimeException ignored) { /* Keep native draw. */ }
+          }
+          if (!tint) return chain.proceed();
+          overlayDraws++;
+          lastPaint = "native group overlay tinted";
+          return card.nativeTint.draw((Canvas)chain.getArg(0), current.getBounds(), chain::proceed);
+        });
+    overlayDrawMethods.add(draw);
+    deoptimizeOverlayMethod(runtime, draw);
+  }
+
+  private static void deoptimizeOverlayMethod(PanelRuntime runtime, Method method) {
+    if (Modifier.isAbstract(method.getModifiers()) || Modifier.isNative(method.getModifiers())) return;
+    try { runtime.module.deoptimize(method); }
+    catch (RuntimeException unavailable) { /* Keep an already installed hook and its binding. */ }
   }
 
   private boolean restricted(View row) throws ReflectiveOperationException {
@@ -192,17 +312,47 @@ final class NotificationCards {
       return parent == null || restrictedSurface(parent) || groupHidesBackground.getBoolean(row)
           || !(boolean)childrenExpanded.invoke(parent) || (boolean)expansionChanging.invoke(parent)
           || userExpanding.getBoolean(parent)
-          || (childrenAnimating != null && (boolean)childrenAnimating.invoke(parent))
+          || groupAnimationRunning(parent)
           || (boolean)gutsExposed.invoke(parent) || (boolean)launchRunning.invoke(parent)
           || (appearing != null && appearing.getBoolean(parent));
     }
     if (!(boolean)groupSummary.invoke(row)) return false;
-    return !ownsCollapsedGroup((boolean)childrenExpanded.invoke(row), (boolean)expansionChanging.invoke(row),
+    return groupAnimationRunning(row)
+        || !ownsCollapsedGroup((boolean)childrenExpanded.invoke(row), (boolean)expansionChanging.invoke(row),
         userExpanding.getBoolean(row), groupHidesBackground.getBoolean(row));
+  }
+
+  private boolean groupAnimationRunning(View row) throws ReflectiveOperationException {
+    if (childrenAnimating != null && (boolean)childrenAnimating.invoke(row)) return true;
+    // OOS 17 keeps this animation flag on the row extension, after the AOSP
+    // group-expansion flag may already have settled. Read it without changing it.
+    Object extension = rowExtension == null ? null : rowExtension.get(row);
+    if (extension == null) return false;
+    // The field's interface does not expose this OOS implementation method.
+    Class<?> type = extension.getClass();
+    if (extensionAnimationType != type) {
+      extensionAnimationType = type;
+      extensionChildrenAnimating = optional(type, "isChildrenExpandedAnimating");
+    }
+    return extensionChildrenAnimating != null && (boolean)extensionChildrenAnimating.invoke(extension);
   }
 
   private boolean restrictedSurface(View row) throws ReflectiveOperationException {
     return onKeyguard.getBoolean(row) || showingPublic.getBoolean(row) || (boolean)headsUp.invoke(row);
+  }
+
+  // A transient row can keep the native renderer and still use our color. This
+  // never makes a hidden background visible or overrides a group's fade/clip.
+  private boolean canTintBackground(View row) throws ReflectiveOperationException {
+    if (!safeNativeBackground(row)) return false;
+    if (!(boolean)groupChild.invoke(row)) return true;
+    View parent = notificationParent == null ? null : (View)notificationParent.invoke(row);
+    return parent != null && safeNativeBackground(parent);
+  }
+
+  private boolean safeNativeBackground(View row) throws ReflectiveOperationException {
+    return !restrictedSurface(row) && !(boolean)gutsExposed.invoke(row)
+        && !(boolean)launchRunning.invoke(row) && (appearing == null || !appearing.getBoolean(row));
   }
 
   // OOS hides the parent's background during split animations and for system bundles
@@ -296,7 +446,7 @@ final class NotificationCards {
         if (!row.isShown()) continue;
         shown++;
         try {
-          if (restricted(row)) { excluded++; continue; }
+          if (restricted(row) && !canTintBackground(row)) { excluded++; continue; }
           Surface surface = surfaceForRow(row);
           seenSurfaces.add(surface);
           int fill = color;
@@ -373,6 +523,8 @@ final class NotificationCards {
       if (card.row.getParent() instanceof ViewGroup parent) rowParents.add(parent);
     }
     for (ViewGroup parent : rowParents) {
+      int groupSeams = joinGroupCorners(parent);
+      if (groupSeams >= 0) { seams += groupSeams; continue; }
       Card previous = null;
       for (int i = 0; i < parent.getChildCount(); i++) {
         View child = parent.getChildAt(i);
@@ -399,6 +551,55 @@ final class NotificationCards {
     }
   }
 
+  // Group containers interleave their rows with headers and divider views. Use their
+  // logical child list, not those decoration views, to find the internal seams.
+  private int joinGroupCorners(ViewGroup container) {
+    try {
+      View owner = null;
+      for (int i = 0; i < container.getChildCount(); i++) {
+        View child = container.getChildAt(i);
+        if (rowType.isInstance(child) && (boolean)groupChild.invoke(child)) {
+          owner = notificationParent == null ? null : (View)notificationParent.invoke(child);
+          break;
+        }
+      }
+      if (owner == null || childrenContainer.invoke(owner) != container) return -1;
+      List<?> children;
+      if (attachedGroupChildren != null) children = (List<?>)attachedGroupChildren.invoke(container);
+      else {
+        // Older vendor containers may not expose their list. Only actual rows are
+        // candidates; sorting their current positions also handles reordered views.
+        ArrayList<View> visibleOrder = new ArrayList<>();
+        for (int i = 0; i < container.getChildCount(); i++)
+          if (rowType.isInstance(container.getChildAt(i))) visibleOrder.add(container.getChildAt(i));
+        visibleOrder.sort((a, b) -> Float.compare(a.getY(), b.getY()));
+        children = visibleOrder;
+      }
+      Card previous = null;
+      int seams = 0;
+      for (Object item : children) {
+        if (!(item instanceof View child) || child.getParent() != container
+            || !rowType.isInstance(child) || !(boolean)groupChild.invoke(child)
+            || notificationParent.invoke(child) != owner) { previous = null; continue; }
+        if (child.getVisibility() != View.VISIBLE || child.getAlpha() <= 0f || child.getHeight() == 0) continue;
+        Card current = rows.get(child);
+        if (current == null || restricted(child) || current.bg.getVisibility() != View.VISIBLE
+            || current.bg.getAlpha() <= 0f || drawableAlpha.getInt(current.bg) <= 0
+            || !current.measureStackPosition(true)) { previous = null; continue; }
+        if (previous != null && sameSeam(previous.stackBottom, current.stackTop,
+            previous.stackX, current.stackX, previous.row.getWidth(), child.getWidth(),
+            current.joinGap, current.alignmentTolerance)
+            && previous.bottomClip <= 0 && current.topClip <= 0) {
+          previous.nextJoined |= JOIN_BOTTOM;
+          current.nextJoined |= JOIN_TOP;
+          seams++;
+        }
+        previous = current;
+      }
+      return seams;
+    } catch (ReflectiveOperationException | RuntimeException unavailable) { return 0; }
+  }
+
   static boolean sameSeam(float upperBottom, float lowerTop, float upperX, float lowerX,
       int upperWidth, int lowerWidth, int maxGap, int tolerance) {
     float gap = lowerTop - upperBottom;
@@ -408,7 +609,7 @@ final class NotificationCards {
 
   void beginPull() {
     peakSeams = 0;
-    boundPasses = replacedThisPull = 0;
+    boundPasses = replacedThisPull = tintedThisPull = 0;
     lastPaint = "none";
     seenSurfaces.clear();
     scannedRows = matchedPeak = visiblePeak = drawsThisPull = rowDraws = 0;
@@ -438,10 +639,14 @@ final class NotificationCards {
 
   private void remove(Card c) {
     c.restore(); c.ripple.jumpToCurrentState(); c.ripple.setCallback(null); c.row.invalidate(); c.bg.invalidate();
+    overlayBackgrounds.invalidateOwner(c.row);
   }
 
   void clear() {
     for (Card c : rows.values()) remove(c);
+    // OOS can reuse an overlay without another factory call on the next shade pull.
+    // Keep only weak factory identity metadata; redraw with native colors while inactive.
+    overlayBackgrounds.invalidateAll();
     rows.clear(); shadeRoot = null;
   }
 
@@ -450,7 +655,8 @@ final class NotificationCards {
         " attachedEvents=" + attachEvents + " scanned=" + scannedRows + " matched=" + matchedPeak + " shown=" + visiblePeak +
         " rowDraws=" + rowDraws + " seamsPeak=" + peakSeams +
         " eligible=" + commonRows + " templates=" + lastTemplates + " insets=" + lastModified +
-        " draws=" + drawCount + " drawsThisPull=" + drawsThisPull + " replacedChild=" + replacedThisPull + " boundPasses=" + boundPasses + " lastPaint=" + lastPaint + " restricted=" + restrictedRows + " other=" + otherStyles +
+        " draws=" + drawCount + " drawsThisPull=" + drawsThisPull + " replacedChild=" + replacedThisPull + " tintedChild=" + tintedThisPull + " boundPasses=" + boundPasses + " lastPaint=" + lastPaint + " restricted=" + restrictedRows + " other=" + otherStyles +
+        " overlayHook=" + overlayHook + " overlayDrawHooks=" + overlayDrawMethods.size() + " overlayBindings=" + overlayFlushes + " overlayDraws=" + overlayDraws +
         " kinds=" + seenSurfaces + " tint=#" + Integer.toHexString(color) : "unavailable") + (problem.isEmpty() ? "" : " " + problem);
   }
 
@@ -459,6 +665,7 @@ final class NotificationCards {
     final LayerDrawable art;
     final GradientDrawable base;
     final RippleDrawable ripple;
+    final NotificationBackgroundTint nativeTint = new NotificationBackgroundTint();
     final Drawable.Callback callback;
     final float[] radii = new float[8];
     final ArrayList<Inset> insets = new ArrayList<>();
@@ -553,13 +760,21 @@ final class NotificationCards {
     }
 
     boolean measureStackPosition() {
+      return measureStackPosition(false);
+    }
+
+    boolean measureStackPosition(boolean inGroup) {
       try {
-        // The children container owns group roundness; its divider views are not
-        // notification stack seams and must not change the children's corners.
-        if ((boolean)groupChild.invoke(row)) return false;
+        // Group children are joined separately so neither a header nor an adjacent
+        // notification outside the group can join across the group's boundary.
+        if (!inGroup && (boolean)groupChild.invoke(row)) return false;
+        // Some cards are retained only to tint the native animation renderer. They
+        // must not supply a stack seam, especially an expanded group's summary.
+        if (restricted(row)) return false;
         if ((inShelf != null && inShelf.getBoolean(row)) || (removing != null && removing.getBoolean(row))
             || (appearing != null && appearing.getBoolean(row)) || (boolean)gutsExposed.invoke(row)
-            || (boolean)launchRunning.invoke(row)) return false;
+            || (boolean)launchRunning.invoke(row) || userExpanding.getBoolean(row)
+            || (userLocked != null && (boolean)userLocked.invoke(row))) return false;
         float slide = rowTranslation == null ? row.getTranslationX() : (float)rowTranslation.invoke(row);
         if (Math.abs(slide) > alignmentTolerance) return false;
         int height = (int)actualHeight.invoke(row);
@@ -597,7 +812,13 @@ final class NotificationCards {
     }
 
     void update(View contracted, View expanded, int fill) {
-      if (tint != fill) { tint = fill; base.setColor(fill); row.invalidate(); }
+      if (tint != fill) {
+        tint = fill;
+        base.setColor(fill);
+        nativeTint.setColor(fill);
+        row.invalidate();
+        overlayBackgrounds.invalidateOwner(row);
+      }
       if (small != contracted || large != expanded ||
           (!insets.isEmpty() && insets.get(0).density != row.getResources().getDisplayMetrics().densityDpi)) {
         restore();

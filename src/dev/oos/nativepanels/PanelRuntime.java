@@ -123,58 +123,66 @@ final class PanelRuntime {
         new BroadcastReceiver() {
           @Override
           public void onReceive(Context context, Intent intent) {
-            try {
-              String locales = intent.getStringExtra("locales");
-              if (moduleContext != null && locales != null && !locales.isEmpty()) {
-                strings = PanelLanguages.withLocales(moduleContext, PanelLanguages.resolve(
-                    LocaleList.forLanguageTags(locales), a.getResources().getConfiguration().getLocales())).getResources();
-              }
-              String command = intent.getStringExtra("command");
-              String feature = intent.getStringExtra("feature");
-              if ("set".equals(command)) {
-                if (!Protocol.isFeature(feature)) throw new IllegalArgumentException(text(R.string.unknown_panel));
-                boolean enable = intent.getBooleanExtra("enabled", false);
-                if ("ime".equals(feature)) {
-                  if (locked()) throw new IllegalStateException(text(R.string.unlock));
-                  imeMenu.setEnabled(enable);
-                  note(enable ? R.string.ime_on : R.string.ime_off);
-                } else {
-                  prefs.edit().putBoolean(feature, enable).apply();
-                  note(R.string.hook_state, featureName(feature), enabled(feature));
+            RuntimeReply reply = RuntimeReply.capture(() -> {
+              int code;
+              try {
+                String locales = intent.getStringExtra("locales");
+                if (moduleContext != null && locales != null && !locales.isEmpty()) {
+                  strings = PanelLanguages.withLocales(moduleContext, PanelLanguages.resolve(
+                      LocaleList.forLanguageTags(locales), a.getResources().getConfiguration().getLocales())).getResources();
                 }
-              } else if ("test".equals(command)) {
-                if (locked()) throw new IllegalStateException(text(R.string.unlock));
-                if ("internet".equals(feature)) showInternet(null);
-                else if ("bluetooth".equals(feature)) showBluetooth(null);
-                else if ("media".equals(feature)) testMedia();
-                else if ("modes".equals(feature)) modes.show(null);
-                else if ("flashlight".equals(feature)) flashlight.test();
-                else if ("users".equals(feature)) users.preview();
-                else if ("privacy".equals(feature)) privacy.show(null, true);
-                else throw new IllegalArgumentException(text(R.string.unknown_panel));
-              } else if (!"status".equals(command)) throw new IllegalArgumentException(text(R.string.unknown_command));
-              setResultCode(1);
-            } catch (Throwable e) {
-              if ("ime".equals(intent.getStringExtra("feature"))) note(R.string.ime_problem, e.toString());
-              else failure(intent.getStringExtra("feature"), e);
-              setResultCode(-1);
-            }
-            String imeValue = null;
-            boolean imeReadable = false;
-            try {
-              imeValue = imeMenu.read();
-              imeReadable = true;
-            } catch (RuntimeException error) {
-              note(R.string.ime_read_error, error.getClass().getSimpleName());
-            }
-            setResultData(status() + "\n" + text(R.string.ime_status,
-                imeReadable ? String.valueOf(imeValue) : text(R.string.unreadable)));
-            Bundle b = new Bundle();
-            b.putBoolean("ready", graph != null);
-            for (String key : Protocol.KEYS)
-              b.putBoolean(key, "ime".equals(key) ? "1".equals(imeValue) : saved(key));
-            b.putBoolean("imeReadable", imeReadable);
-            setResultExtras(b);
+                String command = intent.getStringExtra("command");
+                String feature = intent.getStringExtra("feature");
+                if ("set".equals(command)) {
+                  if (!Protocol.isFeature(feature)) throw new IllegalArgumentException(text(R.string.unknown_panel));
+                  boolean enable = intent.getBooleanExtra("enabled", false);
+                  if ("ime".equals(feature)) {
+                    if (locked()) throw new IllegalStateException(text(R.string.unlock));
+                    imeMenu.setEnabled(enable);
+                    note(enable ? R.string.ime_on : R.string.ime_off);
+                  } else {
+                    prefs.edit().putBoolean(feature, enable).apply();
+                    note(R.string.hook_state, featureName(feature), enabled(feature));
+                  }
+                } else if ("test".equals(command)) {
+                  if (locked()) throw new IllegalStateException(text(R.string.unlock));
+                  if ("internet".equals(feature)) showInternet(null);
+                  else if ("bluetooth".equals(feature)) showBluetooth(null);
+                  else if ("media".equals(feature)) testMedia();
+                  else if ("modes".equals(feature)) modes.show(null);
+                  else if ("flashlight".equals(feature)) flashlight.test();
+                  else if ("users".equals(feature)) users.preview();
+                  else if ("privacy".equals(feature)) privacy.show(null, true);
+                  else throw new IllegalArgumentException(text(R.string.unknown_panel));
+                } else if (!"status".equals(command)) throw new IllegalArgumentException(text(R.string.unknown_command));
+                code = 1;
+              } catch (Throwable e) {
+                if ("ime".equals(intent.getStringExtra("feature"))) note(R.string.ime_problem, e.toString());
+                else failure(intent.getStringExtra("feature"), e);
+                code = -1;
+              }
+              String imeValue = null;
+              boolean imeReadable = false;
+              try {
+                imeValue = imeMenu.read();
+                imeReadable = true;
+              } catch (RuntimeException error) {
+                note(R.string.ime_read_error, error.getClass().getSimpleName());
+              }
+              String report = status() + "\n" + text(R.string.ime_status,
+                  imeReadable ? String.valueOf(imeValue) : text(R.string.unreadable));
+              Bundle b = new Bundle();
+              b.putBoolean("ready", graph != null);
+              for (String key : Protocol.KEYS)
+                b.putBoolean(key, "ime".equals(key) ? "1".equals(imeValue) : saved(key));
+              b.putBoolean("imeReadable", imeReadable);
+              return new RuntimeReply(code, report, b, null);
+            });
+            if (reply.failure() != null)
+              module.log(Log.ERROR, "OOSNativePanels", "Could not format SystemUI response", reply.failure());
+            setResultCode(reply.code());
+            setResultData(reply.report());
+            setResultExtras(reply.values());
           }
         };
     if (Build.VERSION.SDK_INT >= 33)
@@ -340,7 +348,7 @@ final class PanelRuntime {
   }
 
   String text(int id, Object... args) {
-    return strings.getString(id, args);
+    return RuntimeReply.text(strings, id, args);
   }
 
   // Keep translated fields as resource IDs, so the log can also be read after a language change.

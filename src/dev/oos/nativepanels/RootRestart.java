@@ -3,6 +3,7 @@ package dev.oos.nativepanels;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
+import java.util.function.BooleanSupplier;
 
 /** A one-shot interactive root shell; no destructive command is sent until UID 0 is confirmed. */
 final class RootRestart {
@@ -26,6 +27,17 @@ final class RootRestart {
           + "fi\n"
           + "echo OOSNP_RESTART=FAILED\n"
           + "exit 12\n";
+  private static final String PERMISSION_RESTART =
+      "if ! /system/bin/pidof com.google.android.permissioncontroller >/dev/null; then\n"
+          + "  echo OOSNP_RESTART=NOT_RUNNING\n"
+          + "  exit 11\n"
+          + "fi\n"
+          + "if /system/bin/killall -TERM com.google.android.permissioncontroller; then\n"
+          + "  echo OOSNP_RESTART=OK\n"
+          + "  exit 0\n"
+          + "fi\n"
+          + "echo OOSNP_RESTART=FAILED\n"
+          + "exit 12\n";
 
   private RootRestart() {}
 
@@ -33,7 +45,24 @@ final class RootRestart {
     return run(new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000);
   }
 
+  /** Ends the controller's main process; Android starts it for the next permission request. */
+  static Result restartPermissionController(BooleanSupplier allowed) throws IOException {
+    if (!allowed.getAsBoolean()) return Result.FAILED;
+    return runPermissionController(
+        new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
   static Result run(Process process, long authTimeoutMs, long commandTimeoutMs) {
+    return run(process, authTimeoutMs, commandTimeoutMs, RESTART, () -> true);
+  }
+
+  static Result runPermissionController(Process process, long authTimeoutMs,
+      long commandTimeoutMs, BooleanSupplier allowed) {
+    return run(process, authTimeoutMs, commandTimeoutMs, PERMISSION_RESTART, allowed);
+  }
+
+  private static Result run(Process process, long authTimeoutMs, long commandTimeoutMs,
+      String command, BooleanSupplier allowed) {
     CompletableFuture<String> uid = new CompletableFuture<>();
     CompletableFuture<String> outcome = new CompletableFuture<>();
     Thread reader =
@@ -58,10 +87,13 @@ final class RootRestart {
     reader.setDaemon(true);
     reader.start();
     try (Writer out = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8)) {
+      if (!allowed.getAsBoolean()) return Result.FAILED;
       out.write(PROBE);
       out.flush();
       if (!"0".equals(uid.get(authTimeoutMs, TimeUnit.MILLISECONDS))) return Result.DENIED;
-      out.write(RESTART);
+      // The user may turn the feature off while the root manager is asking for approval.
+      if (!allowed.getAsBoolean()) return Result.FAILED;
+      out.write(command);
       out.flush();
       String status = outcome.get(commandTimeoutMs, TimeUnit.MILLISECONDS);
       if ("OK".equals(status)) return Result.REQUESTED;

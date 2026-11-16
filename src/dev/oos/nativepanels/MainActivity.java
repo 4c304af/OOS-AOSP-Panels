@@ -37,6 +37,10 @@ public final class MainActivity extends AppCompatActivity {
   private OnBackPressedCallback back;
   private MaterialButton restartButton;
   private boolean restarting;
+  private PermissionDialogScope permissionScope;
+  private final PermissionDialogScope.Observer permissionScopeObserver = this::updatePermissionScope;
+  private MaterialTextView permissionScopeStatus;
+  private MaterialButton permissionScopeRetry;
 
   @Override
   protected void attachBaseContext(Context base) {
@@ -47,6 +51,7 @@ public final class MainActivity extends AppCompatActivity {
   public void onCreate(Bundle state) {
     DynamicColors.applyToActivityIfAvailable(this);
     super.onCreate(state);
+    permissionScope = ((PanelApplication)getApplication()).permissionScope();
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
     getWindow().setStatusBarColor(Color.TRANSPARENT);
     getWindow().setNavigationBarColor(Color.TRANSPARENT);
@@ -70,6 +75,7 @@ public final class MainActivity extends AppCompatActivity {
 
   @Override
   protected void onDestroy() {
+    permissionScope.removeObserver(permissionScopeObserver);
     cancelGroupMotion();
     super.onDestroy();
   }
@@ -77,10 +83,23 @@ public final class MainActivity extends AppCompatActivity {
   @Override
   public void onResume() {
     super.onResume();
+    permissionScope.refresh();
     request("status", null, false);
   }
 
+  @Override protected void onStart() {
+    super.onStart();
+    permissionScope.observe(permissionScopeObserver);
+  }
+
+  @Override protected void onStop() {
+    permissionScope.removeObserver(permissionScopeObserver);
+    super.onStop();
+  }
+
   private LinearLayout page() {
+    permissionScopeStatus = null;
+    permissionScopeRetry = null;
     LinearLayout content = column();
     content.setPadding(dp(20), dp(12), dp(20), dp(24));
     scroll = new ScrollView(this);
@@ -273,7 +292,23 @@ public final class MainActivity extends AppCompatActivity {
     LinearLayout actions = row();
     margin(actions, 16, 0);
     boolean combined = "combined_qs".equals(key);
+    boolean permissionDialog = CombinedQsSettings.PERMISSION_DIALOG.equals(key);
     boolean persistent = combined || CombinedQsSettings.standalone(key);
+    if (permissionDialog) {
+      permissionScopeStatus = label("", 14, false);
+      permissionScopeStatus.setTag("permission_scope_status");
+      permissionScopeStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+      permissionScopeStatus.setPadding(0, dp(12), 0, 0);
+      body.addView(permissionScopeStatus);
+      permissionScopeRetry = new MaterialButton(this, null,
+          com.google.android.material.R.attr.materialButtonTonalStyle);
+      permissionScopeRetry.setText(R.string.permission_scope_retry);
+      permissionScopeRetry.setTag("permission_scope_retry");
+      permissionScopeRetry.setAllCaps(false);
+      permissionScopeRetry.setOnClickListener(v -> permissionScope.request());
+      actions.addView(permissionScopeRetry, new LinearLayout.LayoutParams(0, dp(48), 1));
+      updatePermissionScope(permissionScope.state());
+    }
     if (persistent || "notification_cards".equals(key)) {
       actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
     } else if ("channels".equals(key)) {
@@ -321,6 +356,7 @@ public final class MainActivity extends AppCompatActivity {
               updateState();
               Snackbar.make(scroll, R.string.combined_save_failed, Snackbar.LENGTH_LONG).show();
             } else if (combined) updateOosCards(checked, true);
+            else if (permissionDialog) permissionScope.request();
           } else {
             request("set", key, checked);
           }
@@ -329,6 +365,34 @@ public final class MainActivity extends AppCompatActivity {
     card.addView(body);
     margin(card, 0, 12);
     page.addView(card);
+  }
+
+  private void updatePermissionScope(PermissionDialogScope.State state) {
+    if (permissionScopeStatus == null || permissionScopeRetry == null) return;
+    int message = switch (state) {
+      case CONNECTING -> R.string.permission_scope_connecting;
+      case MISSING -> R.string.permission_scope_missing;
+      case REQUESTING -> R.string.permission_scope_requesting;
+      case ADDED -> R.string.permission_scope_added;
+      case FAILED -> R.string.permission_scope_failed;
+      case UNAVAILABLE -> R.string.permission_scope_unavailable;
+      case ROOT_PENDING -> R.string.permission_scope_root_pending;
+      case READY -> R.string.permission_scope_ready;
+      case ROOT_DENIED -> R.string.permission_scope_root_denied;
+      case ROOT_TIMEOUT -> R.string.permission_scope_root_timeout;
+      case ROOT_FAILED -> R.string.permission_scope_root_failed;
+      case OFF -> 0;
+    };
+    permissionScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+    if (message != 0) permissionScopeStatus.setText(message);
+    boolean retry = state == PermissionDialogScope.State.MISSING
+        || state == PermissionDialogScope.State.ADDED
+        || state == PermissionDialogScope.State.FAILED
+        || state == PermissionDialogScope.State.UNAVAILABLE
+        || state == PermissionDialogScope.State.ROOT_DENIED
+        || state == PermissionDialogScope.State.ROOT_TIMEOUT
+        || state == PermissionDialogScope.State.ROOT_FAILED;
+    permissionScopeRetry.setVisibility(retry ? View.VISIBLE : View.GONE);
   }
 
   private void cancelGroupMotion() {

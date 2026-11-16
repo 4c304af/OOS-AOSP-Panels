@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Test;
 
 public class RootRestartTest {
@@ -39,6 +40,98 @@ public class RootRestartTest {
     assertEquals(1, shell.restartRequests);
   }
 
+  @Test
+  public void permissionRestartTargetsOnlyTheGoogleControllerWithoutForceStoppingIt() throws Exception {
+    FakeShell shell = new FakeShell("0", "OK");
+    assertEquals(RootRestart.Result.REQUESTED,
+        RootRestart.runPermissionController(shell, 1000, 1000, () -> true));
+    String command = shell.commands();
+    assertTrue(command.contains("/system/bin/pidof com.google.android.permissioncontroller"));
+    assertTrue(command.contains("/system/bin/killall -TERM com.google.android.permissioncontroller"));
+    assertFalse(command.contains("com.android.systemui"));
+    assertFalse(command.contains("com.android.permissioncontroller"));
+    assertFalse(command.contains("force-stop"));
+    assertFalse(command.contains("reboot"));
+    assertFalse(command.contains("pm grant"));
+    assertFalse(command.contains("pm revoke"));
+    assertEquals(1, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void permissionRestartDenialDoesNotSendAnyTargetCommand() throws Exception {
+    FakeShell shell = new FakeShell("2000", "OK");
+    assertEquals(RootRestart.Result.DENIED,
+        RootRestart.runPermissionController(shell, 1000, 1000, () -> true));
+    assertFalse(shell.commands().contains("permissioncontroller"));
+    assertFalse(shell.commands().contains("killall"));
+    assertEquals(0, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void permissionRestartAuthorizationTimeoutCannotQueueALaterRestart() throws Exception {
+    FakeShell shell = new FakeShell(null, "OK");
+    assertEquals(RootRestart.Result.TIMEOUT,
+        RootRestart.runPermissionController(shell, 25, 1000, () -> true));
+    assertFalse(shell.commands().contains("permissioncontroller"));
+    assertFalse(shell.commands().contains("killall"));
+    assertEquals(0, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void permissionRestartRechecksCancellationAfterRootApproval() throws Exception {
+    AtomicBoolean allowed = new AtomicBoolean(true);
+    FakeShell shell = new FakeShell("0", "OK");
+    shell.beforeAuthorizationReply = () -> allowed.set(false);
+    assertEquals(RootRestart.Result.FAILED,
+        RootRestart.runPermissionController(shell, 1000, 1000, allowed::get));
+    assertTrue(shell.probed);
+    assertFalse(shell.commands().contains("permissioncontroller"));
+    assertFalse(shell.commands().contains("killall"));
+    assertEquals(0, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void alreadyCancelledPermissionRestartDoesNotEvenSendTheRootProbe() throws Exception {
+    FakeShell shell = new FakeShell("0", "OK");
+    assertEquals(RootRestart.Result.FAILED,
+        RootRestart.runPermissionController(shell, 1000, 1000, () -> false));
+    assertEquals("", shell.commands());
+    assertFalse(shell.probed);
+    assertEquals(0, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void permissionRestartCommandTimeoutEndsTheShellWithoutRetry() throws Exception {
+    FakeShell shell = new FakeShell("0", null);
+    assertEquals(RootRestart.Result.TIMEOUT,
+        RootRestart.runPermissionController(shell, 1000, 25, () -> true));
+    assertEquals(1, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void permissionControllerAlreadyStoppedIsReportedWithoutRetry() throws Exception {
+    FakeShell shell = new FakeShell("0", "NOT_RUNNING");
+    assertEquals(RootRestart.Result.NOT_RUNNING,
+        RootRestart.runPermissionController(shell, 1000, 1000, () -> true));
+    assertEquals(1, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void failedPermissionRestartDoesNotReportSuccessOrRetry() throws Exception {
+    FakeShell shell = new FakeShell("0", "FAILED");
+    assertEquals(RootRestart.Result.FAILED,
+        RootRestart.runPermissionController(shell, 1000, 1000, () -> true));
+    assertEquals(1, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
   /** Simulates root-manager I/O. Never launches su or evaluates the shell payload. */
   private static final class FakeShell extends Process {
     final PipedInputStream input = new PipedInputStream();
@@ -47,6 +140,7 @@ public class RootRestartTest {
     final String uid, result;
     boolean probed, destroyed;
     int restartRequests;
+    Runnable beforeAuthorizationReply = () -> {};
     final OutputStream output =
         new OutputStream() {
           @Override
@@ -56,12 +150,13 @@ public class RootRestartTest {
 
           @Override
           public void flush() throws IOException {
-            if (!probed) {
+            if (!probed && commands().contains("OOSNP_UID=")) {
               probed = true;
+              beforeAuthorizationReply.run();
               if (uid != null) reply("OOSNP_UID=" + uid);
             } else if (commands().contains("killall") && restartRequests == 0) {
               restartRequests++;
-              reply("OOSNP_RESTART=" + result);
+              if (result != null) reply("OOSNP_RESTART=" + result);
             }
           }
         };

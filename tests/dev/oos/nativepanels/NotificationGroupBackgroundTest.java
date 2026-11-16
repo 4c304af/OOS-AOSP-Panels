@@ -11,6 +11,9 @@ import android.widget.FrameLayout;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
@@ -57,6 +60,7 @@ public class NotificationGroupBackgroundTest {
     bindRowMethod("gutsExposed", "areGutsExposed");
     bindRowMethod("launchRunning", "isExpandAnimationRunning");
     bindRowMethod("childrenContainer", "getChildrenContainer");
+    set(cards, "attachedGroupChildren", Children.class.getMethod("getAttachedChildren"));
     bindRowMethod("privateLayout", "getPrivateLayout");
     bindRowMethod("actualHeight", "getActualHeight");
     bindRowMethod("clipTop", "getClipTopAmount");
@@ -178,6 +182,187 @@ public class NotificationGroupBackgroundTest {
     assertEquals(Color.RED, draw(single).getPixel(100, 40));
   }
 
+  @Test public void joinsExpandedGroupChildrenAcrossDecorationsWithoutJoiningOutsideTheGroup() throws Exception {
+    summary.expanded = true;
+    child.setTranslationY(12);
+    Row second = addChild(94), third = addChild(176);
+    // Real containers interleave divider/header views with the logical notification rows.
+    summary.children.addView(new View(stack.getContext()), 1);
+    summary.children.addView(new View(stack.getContext()), 3);
+    summary.children.logicalOrder = List.of(child, second, third);
+    Object firstCard = remember(child), secondCard = remember(second), thirdCard = remember(third);
+    Object outsideCard = remember(standalone);
+    join();
+
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(3, get(secondCard, "joined"));
+    assertEquals(1, get(thirdCard, "joined"));
+    assertEquals(0, get(outsideCard, "joined"));
+    draw(firstCard); draw(secondCard); draw(thirdCard);
+    float inner = ((Number)get(firstCard, "innerRadius")).floatValue();
+    float[] first = (float[])get(firstCard, "radii"), middle = (float[])get(secondCard, "radii");
+    float[] last = (float[])get(thirdCard, "radii");
+    assertTrue(first[0] > inner);
+    assertEquals(inner, first[4], 0f);
+    assertEquals(inner, middle[0], 0f);
+    assertEquals(inner, middle[4], 0f);
+    assertEquals(inner, last[0], 0f);
+    assertTrue(last[4] > inner);
+    // Joining the replacement never rewrites the vendor's radius animation state.
+    assertArrayEquals(new float[]{16, 16, 16, 16, 16, 16, 16, 16}, child.bg.radii, 0f);
+  }
+
+  @Test public void logicalOrderHandlesReorderingAndFallbackUsesCurrentPositions() throws Exception {
+    summary.expanded = true;
+    child.setTranslationY(164);
+    Row second = addChild(0), third = addChild(82);
+    summary.children.logicalOrder = List.of(second, third, child);
+    Object firstCard = remember(second), middleCard = remember(third), lastCard = remember(child);
+    join();
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(3, get(middleCard, "joined"));
+    assertEquals(1, get(lastCard, "joined"));
+    set(cards, "attachedGroupChildren", null);
+    join();
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(3, get(middleCard, "joined"));
+    assertEquals(1, get(lastCard, "joined"));
+  }
+
+  @Test public void groupJoinsBreakAtUnsupportedRowsAndRealGaps() throws Exception {
+    summary.expanded = true;
+    Row unsupported = addChild(82), last = addChild(164);
+    Object firstCard = remember(child), lastCard = remember(last);
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(lastCard, "joined"));
+
+    Object middleCard = remember(unsupported);
+    last.setTranslationY(190);
+    join();
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(1, get(middleCard, "joined"));
+    assertEquals(0, get(lastCard, "joined"));
+  }
+
+  @Test public void groupJoinsFollowVisibilityAndResetDuringCollapseOrSwipes() throws Exception {
+    summary.expanded = true;
+    Row second = addChild(82), third = addChild(164);
+    Object firstCard = remember(child), secondCard = remember(second), thirdCard = remember(third);
+    join();
+    assertEquals(3, get(secondCard, "joined"));
+    third.setVisibility(View.GONE);
+    join();
+    assertEquals(1, get(secondCard, "joined"));
+    assertEquals(0, get(thirdCard, "joined"));
+    second.setTranslationX(30);
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(secondCard, "joined"));
+    second.setTranslationX(0);
+    second.dragging = true;
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(secondCard, "joined"));
+    second.dragging = false;
+    summary.expanded = false;
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(secondCard, "joined"));
+  }
+
+  @Test public void groupJoinsYieldToClippingPrivacyAndTransitionState() throws Exception {
+    summary.expanded = true;
+    Row second = addChild(82);
+    Object firstCard = remember(child), secondCard = remember(second);
+    child.clipBottomAmount = 4;
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(secondCard, "joined"));
+    child.clipBottomAmount = 0;
+    for (String name : new String[]{"keyguard", "publicContent", "changing", "dragging", "childrenAnimating"}) {
+      Row.class.getField(name).setBoolean(summary, true);
+      join();
+      assertEquals(name, 0, get(firstCard, "joined"));
+      assertEquals(name, 0, get(secondCard, "joined"));
+      Row.class.getField(name).setBoolean(summary, false);
+    }
+    join();
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(1, get(secondCard, "joined"));
+  }
+
+  @Test public void fallbackOnlySummaryCannotJoinTheNextNotificationAcrossAnExpandedGroup() throws Exception {
+    summary.expanded = true;
+    summary.hidesBackground = true;
+    standalone.setTranslationY(summary.getHeight() + 2);
+    Object summaryCard = remember(summary), outsideCard = remember(standalone);
+    join();
+    assertEquals(0, get(summaryCard, "joined"));
+    assertEquals(0, get(outsideCard, "joined"));
+    summary.expanded = false;
+    summary.hidesBackground = false;
+    summary.changing = true;
+    join();
+    assertEquals(0, get(summaryCard, "joined"));
+    assertEquals(0, get(outsideCard, "joined"));
+  }
+
+  @Test public void vendorAnimationFlagKeepsSummaryAndChildrenOnTheNativeAnimationRenderer() throws Exception {
+    // This ROM exposes the animation only through mRowEx, not a method on the row.
+    set(cards, "childrenAnimating", null);
+    set(cards, "rowExtension", Row.class.getField("extension"));
+    assertThrows(NoSuchMethodException.class,
+        () -> Row.class.getField("extension").getType().getMethod("isChildrenExpandedAnimating"));
+    ((RowExtension)summary.extension).animating = true;
+    assertTrue(restricted(summary));
+    assertTrue((boolean)call(cards, "canTintBackground", new Class<?>[]{View.class}, summary));
+    summary.expanded = true;
+    Row second = addChild(82);
+    Object firstCard = remember(child), secondCard = remember(second);
+    assertTrue(restricted(child));
+    assertTrue((boolean)call(cards, "canTintBackground", new Class<?>[]{View.class}, child));
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(secondCard, "joined"));
+    ((RowExtension)summary.extension).animating = false;
+    assertFalse(restricted(child));
+    join();
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(1, get(secondCard, "joined"));
+    summary.expanded = false;
+    assertFalse(restricted(summary));
+
+    set(cards, "childrenAnimating", Row.class.getMethod("isChildrenExpandedAnimating"));
+    summary.childrenAnimating = true;
+    assertTrue(restricted(summary));
+    summary.childrenAnimating = false;
+
+    summary.extension = null;
+    assertFalse(restricted(summary));
+    set(cards, "rowExtension", null);
+    set(cards, "extensionChildrenAnimating", null);
+    assertFalse(restricted(summary));
+  }
+
+  private Row addChild(float y) {
+    Row row = new Row(stack.getContext());
+    row.child = true;
+    row.notificationParent = summary;
+    summary.children.addView(row);
+    layoutRow(row);
+    row.setTranslationY(y);
+    return row;
+  }
+
+  private Object remember(Row row) throws Exception {
+    Object card = card(row, Color.RED);
+    ((Map)get(cards, "rows")).put(row, card);
+    return card;
+  }
+
+  private void join() throws Exception { call(cards, "updateJoinedCorners", new Class<?>[0]); }
+
   private static void layoutRow(Row row) {
     row.layout(0, 0, 200, 80);
     row.bg.layout(0, 0, 200, 80);
@@ -233,13 +418,16 @@ public class NotificationGroupBackgroundTest {
     public boolean keyguard, publicContent, headsUp, hidesBackground, dragging, appearing;
     public boolean child, summary, expanded, changing, guts, launching, childrenAnimating;
     public Row notificationParent;
+    public ExtensionMarker extension = new RowExtension();
+    public int clipTopAmount, clipBottomAmount;
     final Background bg;
-    final FrameLayout content, children;
+    final FrameLayout content;
+    final Children children;
     Row(Context context) {
       super(context);
       bg = new Background(context);
       content = new FrameLayout(context);
-      children = new FrameLayout(context);
+      children = new Children(context);
       addView(bg); addView(content); addView(children);
     }
     public boolean isChildInGroup() { return child; }
@@ -251,13 +439,32 @@ public class NotificationGroupBackgroundTest {
     public boolean isHeadsUpState() { return headsUp; }
     public boolean areGutsExposed() { return guts; }
     public boolean isExpandAnimationRunning() { return launching; }
-    public FrameLayout getChildrenContainer() { return children; }
+    public Children getChildrenContainer() { return children; }
     public FrameLayout getPrivateLayout() { return content; }
     public int getActualHeight() { return getHeight(); }
-    public int getClipTopAmount() { return 0; }
-    public int getClipBottomAmount() { return 0; }
+    public int getClipTopAmount() { return clipTopAmount; }
+    public int getClipBottomAmount() { return clipBottomAmount; }
     public float getTopCornerRadius() { return 16f; }
     public float getBottomCornerRadius() { return 16f; }
+  }
+
+  public static final class Children extends FrameLayout {
+    List<Row> logicalOrder;
+    Children(Context context) { super(context); }
+    public List<Row> getAttachedChildren() {
+      if (logicalOrder != null) return logicalOrder;
+      List<Row> rows = new ArrayList<>();
+      for (int i = 0; i < getChildCount(); i++)
+        if (getChildAt(i) instanceof Row row) rows.add(row);
+      return rows;
+    }
+  }
+
+  public interface ExtensionMarker {}
+
+  public static final class RowExtension implements ExtensionMarker {
+    public boolean animating;
+    public boolean isChildrenExpandedAnimating() { return animating; }
   }
 
   public static final class Background extends View {

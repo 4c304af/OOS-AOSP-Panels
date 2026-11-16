@@ -65,8 +65,17 @@ final class PermissionDialogHook {
           // listener, SecureButtons, location controls and grant/deny actions.
           Object view = inflation.run(activity, presentation, c::proceed);
           boolean applied = view instanceof View root && root.getResources() == presentation.getResources();
+          String background = null;
+          if (applied) {
+            try { background = PermissionDialogColors.apply((View)view); }
+            catch (RuntimeException failure) {
+              // A cosmetic failure must not rerun the handler or interrupt its permission request.
+              module.log(Log.WARN, "OOSNativePanels", "Permission dialog kept original background", failure);
+            }
+          }
           PermissionDialogSettings.report(activity, "Package: " + activity.getPackageName()
-              + "\nGrant UI: " + (applied ? "native APK resources" : "original (inflater not reached)"));
+              + "\nGrant UI: " + (applied ? "native APK resources" : "original (inflater not reached)")
+              + "\nDialog background: " + (background != null ? background : "unchanged"));
           return view;
         });
   }
