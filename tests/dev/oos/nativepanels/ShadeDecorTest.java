@@ -138,6 +138,7 @@ public class ShadeDecorTest {
     FrameLayout frame = new FrameLayout(c);
     ShadeDecor decor = new ShadeDecor(frame, null, null);
     decor.install();
+    decor.setOpen(true, false);
     decor.headerTranslation(-20f);
     FrameLayout host = decor.createHeaderHost(c);
     assertEquals(-20f, host.getTranslationY(), .001f);

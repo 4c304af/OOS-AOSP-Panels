@@ -205,7 +205,7 @@ public class ScreenTest {
       assertNotNull(findText(decor, picker));
       assertNotNull(findText(decor, activity.getString(R.string.privacy)));
       if ("ja".equals(tag)) assertNotNull(findText(decor, "パネルの動作を確認してから、置き換えを有効にしてください。"));
-      assertEquals(Protocol.KEYS.length + 2, countSwitches(decor));
+      assertHomeSwitches(decor);
       capture(decor, "locale-" + tag + ".png");
       findText(decor, activity.getString(R.string.restart_ui)).performClick();
       ShadowLooper.idleMainLooper();
@@ -254,7 +254,7 @@ public class ScreenTest {
       MainActivity activity = controller.get();
       ShadowLooper.idleMainLooper();
       View decor = activity.getWindow().getDecorView();
-      assertEquals(Protocol.KEYS.length + 2, countSwitches(decor));
+      assertHomeSwitches(decor);
       assertNotNull(findText(decor, "使用者切換"));
       assertNotNull(findText(decor, "勿擾模式"));
       assertNotNull(findText(decor, "手電筒亮度"));
@@ -287,6 +287,13 @@ public class ScreenTest {
           activity.getWindow().getDecorView(),
           dark ? "diagnostics-dark.png" : "diagnostics-light.png");
     }
+  }
+
+  private void assertHomeSwitches(View decor) {
+    String[] settings = {"combined_qs", CombinedQsSettings.HOME_BATTERY, CombinedQsSettings.MOBILE_ORDER};
+    for (String key : Protocol.KEYS) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
+    for (String key : settings) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
+    assertEquals(Protocol.KEYS.length + settings.length, countSwitches(decor));
   }
 
   private int countSwitches(View v) {
