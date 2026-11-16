@@ -1,6 +1,6 @@
 # OOS 原生面板
 
-這個 LSPosed 模組為 OxygenOS 的系統介面加入 AOSP 快速設定、通知面板與狀態列元件。
+這個 LSPosed 模組為 ColorOS 17 國際版的系統介面加入 AOSP 快速設定、通知面板與狀態列元件。
 
 [下載 APK（GitHub Releases）](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
 
@@ -17,7 +17,7 @@
 | [ONextBox](https://github.com/MiToverG422/ONextBox) | 狀態列網路制式圖示的相容性參考。啟用 ONextBox 圖示包時，本模組保留它提供的制式圖案，並調整圖案與訊號條之間的留白。 |
 | [Material Symbols](https://github.com/google/material-design-icons/tree/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7) | 模組啟動圖示取自 Google 的 Material Symbols Rounded 實心字形，採用 [Apache License 2.0](resources/META-INF/material-symbols/LICENSE)。 |
 | [Material Components for Android](https://github.com/material-components/material-components-android/releases/tag/1.14.0) | 模組設定介面使用 1.14.0 的 Material 3 Expressive 主題、卡片、按鈕與開關。 |
-| [libxposed API](https://github.com/libxposed/api/releases/tag/102.0.0) | 模組使用 Modern Xposed API 102 在 OxygenOS 的 SystemUI 中接入原生面板。 |
+| [libxposed API](https://github.com/libxposed/api/releases/tag/102.0.0) | 模組使用 Modern Xposed API 102 在 ColorOS 17 國際版的 SystemUI 中接入原生面板。 |
 
 ## 歷史版本
 
@@ -211,7 +211,7 @@
 
 - 沒有機型、地區、ROM 版本或指紋白名單。SystemUI 啟動改用 Android 的 Application 入口。
 - 支援從父類別查找 QS 工廠及按型別取得 SysUIComponent。ROM 未提供對應頁首控制器時，其餘的合併面板仍可使用。
-- 現有 ROM 靜態驗證樣本為 OxygenOS。國內版 ColorOS 17 仍需實機驗證。
+- 現有 ROM 靜態驗證樣本為 ColorOS 17 國際版。國內版 ColorOS 17 仍需實機驗證。
 
 ### 0.6.4
 

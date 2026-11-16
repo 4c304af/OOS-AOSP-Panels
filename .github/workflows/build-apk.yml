@@ -81,6 +81,9 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    concurrency:
+      group: release-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
@@ -89,15 +92,28 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       BUILD_ATTEMPT: ${{ needs.build.outputs.attempt }}
     steps:
+      - name: Check whether this APK version is already published
+        id: check
+        run: |
+          set -euo pipefail
+          # Earlier releases used v<version>-build.<run>.<attempt>.
+          versions=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | .tag_name | (., sub("-build\\.[0-9]+\\.[0-9]+$"; ""))')
+          if grep -Fxq -- "v$VERSION" <<< "$versions"; then
+            echo "Version $VERSION already has a release." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish signed APK to GitHub Releases
+        if: steps.check.outputs.publish == 'true'
         run: |
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "OOS-AOSP-Panels-release-$BUILD_ATTEMPT" --dir dist
-          build="$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
           flags=()
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
-          gh release create "v$VERSION-build.$build" "dist/OOS-AOSP-Panels-$VERSION.apk" \
+          gh release create "v$VERSION" "dist/OOS-AOSP-Panels-$VERSION.apk" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "OOS AOSP Panels $VERSION (build $build)" "${flags[@]}" \
+            --title "OOS AOSP Panels $VERSION" "${flags[@]}" \
             --notes "Built from $GITHUB_SHA. [GitHub Actions run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
