@@ -2,7 +2,7 @@
 
 這個 LSPosed 模組為 OxygenOS 的系統介面加入 AOSP 快速設定、通知面板與狀態列元件。
 
-[GitHub Actions 測試版 APK](https://github.com/onichan0923/OOS-AOSP-Panels/actions/workflows/build-apk.yml)
+[下載 APK（GitHub Releases）](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
 
 ## 0.6.44-test
 

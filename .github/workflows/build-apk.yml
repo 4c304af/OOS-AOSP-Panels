@@ -1,4 +1,4 @@
-name: Build debug APK
+name: Build and release APK
 
 on:
   push:
@@ -14,6 +14,9 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      attempt: ${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,12 +31,73 @@ jobs:
       - name: Set up Android SDK 35
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
 
-      - name: Build APK and run unit tests
-        run: ./gradlew --stacktrace assembleDebug testDebugUnitTest
+      - name: Run unit tests
+        run: ./gradlew --stacktrace testDebugUnitTest
 
-      - name: Upload debug APK
+      - name: Build signed release APK
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          OOS_KEYSTORE_BASE64: ${{ secrets.OOS_KEYSTORE_BASE64 }}
+          OOS_STORE_PASSWORD: ${{ secrets.OOS_STORE_PASSWORD }}
+          OOS_KEY_PASSWORD: ${{ secrets.OOS_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${OOS_KEYSTORE_BASE64:?Missing keystore}" "${OOS_STORE_PASSWORD:?Missing store password}" "${OOS_KEY_PASSWORD:?Missing key password}"
+          umask 077
+          trap 'rm -f -- test-signing.p12' EXIT
+          printf '%s' "$OOS_KEYSTORE_BASE64" | base64 --decode > test-signing.p12
+          unset OOS_KEYSTORE_BASE64
+          ./gradlew --no-daemon assembleRelease
+
+      - name: Verify signing certificate and prepare APK
+        id: verify
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          dir=build/outputs/apk/release
+          entry=$(jq -ce '.elements | select(length == 1) | first' "$dir/output-metadata.json")
+          version=$(jq -er '.versionName' <<< "$entry")
+          apk="$dir/$(jq -er '.outputFile' <<< "$entry")"
+          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          digest=$("$signer" verify --print-certs "$apk" | awk '/^Signer #[0-9]+ certificate SHA-256 digest:/ {print $NF}')
+          expected=83cf016702121d7bf2adbc358418563e074510b5e44d8ae004dc47110a2cd818
+          if [[ "$digest" != "$expected" ]]; then
+            echo "::error::APK signer does not match the original certificate"
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$apk" "dist/OOS-AOSP-Panels-$version.apk"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload signed APK
+        if: steps.verify.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: OOS-AOSP-Panels-debug
-          path: build/outputs/apk/debug/*.apk
+          name: OOS-AOSP-Panels-release-${{ github.run_attempt }}
+          path: dist/*.apk
           if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build.outputs.version }}
+      BUILD_ATTEMPT: ${{ needs.build.outputs.attempt }}
+    steps:
+      - name: Publish signed APK to GitHub Releases
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "OOS-AOSP-Panels-release-$BUILD_ATTEMPT" --dir dist
+          build="$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "v$VERSION-build.$build" "dist/OOS-AOSP-Panels-$VERSION.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "OOS AOSP Panels $VERSION (build $build)" "${flags[@]}" \
+            --notes "Built from $GITHUB_SHA. [GitHub Actions run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
