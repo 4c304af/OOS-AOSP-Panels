@@ -9,6 +9,16 @@
 - **橫屏快速設定**　雙欄共用一行時間、日期及狀態圖示，頁首高度依橫屏狀態欄及瀏海安全範圍調整。兩行磁貼可左右換頁，內容超過可用高度時也能上下捲動。關閉面板、切回直屏或重建頁首時會還原佈局。
 - **橫屏通知**　右欄從收合頁首下緣延伸至底部導覽安全區。首末留白位於捲動區內，通知列表、底板、裁切和點擊共用同一範圍。佈局參考 Android 17（`android-17.0.0_r1`）的 `ShadeScene.kt` 和 `ShadeHeader.kt`。
 
+## 參考專案
+
+| 專案 | 在本模組中的用途 |
+| --- | --- |
+| Android Open Source Project（AOSP） | 橫屏快速設定與通知雙欄的佈局參考 Android 17 的 [ShadeScene 與 ShadeHeader](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-17.0.0_r1/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/)。勿擾面板的開啟流程參考 [ModesDialogDelegate](https://android.googlesource.com/platform/frameworks/base/+/5db0901c639ecae8d034c2b12b67ae26e749aed1/packages/SystemUI/src/com/android/systemui/statusbar/policy/ui/dialog/ModesDialogDelegate.kt)，行動網路切換時的 Wi-Fi 自動連線行為則對照 [WifiManager](https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/android17-release/framework/java/android/net/wifi/WifiManager.java)。 |
+| [ONextBox](https://github.com/MiToverG422/ONextBox) | 狀態列網路制式圖示的相容性參考。啟用 ONextBox 圖示包時，本模組保留它提供的制式圖案，並調整圖案與訊號條之間的留白。 |
+| [Material Symbols](https://github.com/google/material-design-icons/tree/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7) | 模組啟動圖示取自 Google 的 Material Symbols Rounded 實心字形，採用 [Apache License 2.0](resources/META-INF/material-symbols/LICENSE)。 |
+| [Material Components for Android](https://github.com/material-components/material-components-android/releases/tag/1.14.0) | 模組設定介面使用 1.14.0 的 Material 3 Expressive 主題、卡片、按鈕與開關。 |
+| [libxposed API](https://github.com/libxposed/api/releases/tag/102.0.0) | 模組使用 Modern Xposed API 102 在 OxygenOS 的 SystemUI 中接入原生面板。 |
+
 ## 歷史版本
 
 <details>
