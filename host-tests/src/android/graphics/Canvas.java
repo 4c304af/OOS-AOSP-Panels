@@ -1,0 +1,1 @@
+package android.graphics;public class Canvas{public int draws;public void drawRoundRect(float l,float t,float r,float b,float rx,float ry,Paint p){if(rx<=0||ry<=0||l>=r||t>=b)throw new AssertionError();draws++;}public android.graphics.Path clipped;public boolean clipPath(android.graphics.Path p){clipped=p;return true;}}

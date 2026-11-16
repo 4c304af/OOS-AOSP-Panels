@@ -1,0 +1,56 @@
+plugins { id 'com.android.application' version '8.10.1' }
+
+android {
+    namespace 'dev.oos.nativepanels'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'dev.oos.nativepanels'
+        minSdk 30
+        targetSdk 35
+        versionCode 56
+        versionName '0.6.44-test'
+    }
+    buildFeatures { buildConfig true }
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            res.srcDirs = ['res']
+            resources.srcDirs = ['resources']
+        }
+        test { java.srcDirs = ['tests'] }
+    }
+    signingConfigs {
+        testRelease {
+            storeFile file('test-signing.p12')
+            storePassword (System.getenv('OOS_STORE_PASSWORD') ?: '')
+            keyAlias 'test'
+            keyPassword (System.getenv('OOS_KEY_PASSWORD') ?: '')
+        }
+    }
+    buildTypes {
+        release { signingConfig signingConfigs.testRelease; minifyEnabled false }
+        debug {
+            if (file('test-signing.p12').isFile() && System.getenv('OOS_STORE_PASSWORD') && System.getenv('OOS_KEY_PASSWORD')) {
+                signingConfig signingConfigs.testRelease
+            }
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            def proxy = System.getenv('OOS_MAVEN_PROXY')
+            if (proxy) systemProperty 'robolectric.dependency.repo.url', "${proxy}/maven"
+            systemProperty 'robolectric.graphicsMode', 'NATIVE'
+        }
+    }
+    packaging { resources.excludes += ['META-INF/LICENSE*', 'META-INF/NOTICE*'] }
+}
+dependencies {
+    compileOnly 'io.github.libxposed:api:102.0.0'
+    implementation 'com.google.android.material:material:1.14.0'
+    testRuntimeOnly 'io.github.libxposed:api:102.0.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.15.1'
+}

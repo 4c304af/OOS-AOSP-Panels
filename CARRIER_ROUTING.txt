@@ -1,0 +1,35 @@
+Carrier row routing — 0.2.2
+
+Observed in the user-supplied SystemUI 17.99.02:
+InternetDetailsContentController.connectCarrierNetwork checks mobile data enabled, keyguard,
+and whether cellular is already the active network, then gets AccessPointControllerImpl.getMergedCarrierEntry.
+It calls MergedCarrierEntry.connect(null, false) when the entry can connect.
+The shared AccessPointControllerImpl gets that entry from its own mWifiPickerTracker.
+MergedCarrierEntry.connect calls WifiManager.startRestrictingAutoJoinToSubscriptionId only when
+its own WifiTrackerInjector cached Wi-Fi state equals WIFI_STATE_ENABLED (3).
+The module already owns a lifecycle-started WifiPickerTracker to repair the native list.
+
+New routing:
+Wrap connectCarrierNetwork, isCarrierNetworkActive and getCarrierNetworkLevel with a thread-local
+reference to the module's active InternetDetailsContentController session.
+Only inside those calls and only for that session's exact AccessPointController instance,
+getMergedCarrierEntry returns the entry from the live module tracker.
+Original controller checks, connect implementation and native toast remain in use.
+Unrelated AccessPointController calls continue unchanged. Thread-local context is restored in finally.
+A diagnostic hook records when the native WifiManager request returns without an exception.
+The diagnostic confirms submission, not an observed cellular connection.
+
+The Android 17 API temporarily disables autojoin for currently visible provisioned non-carrier
+Wi-Fi networks; saved per-network autojoin settings are not permanently changed.
+Out-of-range duration or a framework timeout can restore eligibility.
+Native StandardWifiEntry, PasspointWifiEntry and OsuWifiEntry connect paths call
+stopRestrictingAutoJoinToSubscriptionId when the user explicitly reconnects.
+
+Reference:
+https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/android17-release/framework/java/android/net/wifi/WifiManager.java
+
+The user confirmed version 0.2.2 works. Reference regression steps:
+1. Connect Wi-Fi and enable mobile data; tap the carrier row in the module's native Internet panel.
+2. Confirm internet uses cellular, Wi-Fi switch remains on, and Wi-Fi does not immediately reconnect.
+3. Select the Wi-Fi entry again; confirm normal reconnection.
+4. If no switch occurs, collect the module diagnostics; do not toggle persistent autojoin settings.

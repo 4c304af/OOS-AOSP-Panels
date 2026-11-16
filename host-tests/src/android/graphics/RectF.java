@@ -1,0 +1,1 @@
+package android.graphics;public class RectF{float l,t,r,b;public void set(float x,float y,float a,float c){l=x;t=y;r=a;b=c;}public void offset(float x,float y){l+=x;r+=x;t+=y;b+=y;}public float width(){return r-l;}public float height(){return b-t;}public float centerX(){return(l+r)/2;}public float centerY(){return(t+b)/2;}}

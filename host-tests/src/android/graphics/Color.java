@@ -1,0 +1,1 @@
+package android.graphics;public class Color{public static int alpha(int x){return x>>>24;}}

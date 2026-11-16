@@ -1,0 +1,1 @@
+package android.graphics; public class Paint {int color;public Paint(int flags){}public void setColor(int v){color=v;} public int getColor(){return color;}public int getAlpha(){return color>>>24;}}

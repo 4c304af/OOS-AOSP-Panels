@@ -1,0 +1,9 @@
+OOS AOSP Panels 0.6.44-test (56)
+
+橫屏使用單一即時頁首。時鐘與日期在起始端、狀態圖示及電池在末端，高度隨系統橫屏狀態欄和螢幕切口改變。快速設定只為尚未由宿主扣除的頁首高度留位。右欄從頁首下緣延伸至當前導覽安全區；列表內部的上下留白隨版面更新。底板沿用直屏主題色與透明度。
+參考 Android 17 正式版 android-17.0.0_r1 的 ShadeScene.kt 和 ShadeHeader.kt，路徑為 frameworks/base/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/。已核對 OOS 橫屏展開磁貼每頁兩行。
+
+已通過 39 個 JVM 測試和 4 組宿主測試，並以 APK 的 DEX 核對佈局和手勢的呼叫端。ROM 靜態檢查 PASS: 874 ROM checks.
+測試視窗 2048 × 1024，指定狀態欄高度 66、底部導覽區高度 75 時，取得右欄 [1024,66–2048,949]。已覆蓋空列表、通知捲動、側面開孔、隱藏導覽列、重建 Compose 頁首、左欄正常頁與溢出頁的手勢，以及轉回直屏的狀態還原。這些為測試視窗結果，未在一加實機截圖或量測耗電。
+三個 DEX、模塊引用、APK v2 簽名、套件版本與 zipalign 已驗證。升級簽名與 0.6.43 相同。APK 新舊差異位於 classes2.dex 與 AndroidManifest.xml。
+APK SHA-256 6e4c60c32c658bb95745fdd03a9b21add16915ec922b49a55a87481abd1e27fe

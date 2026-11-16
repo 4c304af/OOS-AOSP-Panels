@@ -1,0 +1,1 @@
+package android.view;public class MotionEvent {public float x,y;public float getX(){return x;}public float getY(){return y;}public float getRawX(){return x;}public float getRawY(){return y;}public int getPointerCount(){return 1;}public long getDownTime(){return 123L;}}

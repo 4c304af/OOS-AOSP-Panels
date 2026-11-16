@@ -1,0 +1,1 @@
+package android.content; public class Context {public android.content.res.Resources res=new android.content.res.Resources();public android.content.res.Resources getResources(){return res;}public int getColor(int id){return id;}public String getPackageName(){return "com.android.systemui";}}

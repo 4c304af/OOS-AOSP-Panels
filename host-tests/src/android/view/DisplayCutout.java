@@ -1,0 +1,1 @@
+package android.view;import android.graphics.Rect;public class DisplayCutout{public Rect top=new Rect();public int bottom; public Rect getBoundingRectTop(){return top;}public int getSafeInsetTop(){return top.bottom;}public int getSafeInsetBottom(){return bottom;}}

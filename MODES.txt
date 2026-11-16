@@ -1,0 +1,55 @@
+Native Modes panel — 0.3.0-test
+
+Grounding: user-supplied SystemUI 17.99.02 and com.android.settings APK.
+New implementation: ModesPanel.java, OosModesSettings.java.
+Feature key: modes. Default: disabled. Independent app test button always available when unlocked.
+
+Native data and UI:
+DaggerOplusReferenceGlobalRootComponent$OplusReferenceSysUIComponentImpl.modesDialogDelegateProvider
+-> ModesDialogDelegate.createDialog()
+-> ComponentSystemUIDialog with native Compose ModesDialogContent and ModesDialogViewModel.
+The model uses ZenModeInteractor and ZenModeRepositoryImpl / ZenModesBackend.
+Native callbacks activate/deactivate modes and decide whether to ask for duration.
+The native createDialog lifecycle observer clears currentDialog when the dialog stops.
+
+Showing the dialog:
+Run on main thread, getCurrentDialog/createDialog, then use the original
+DialogTransitionAnimator.show(Dialog, Controller, false) with a controller from the tile Expandable.
+Jank marker: 58, configure_priority_modes, matching the supplied showDialog continuation body.
+With no usable source, use Dialog.show and platform window animation.
+This is the synchronous body of native showDialog; no null coroutine Continuation is passed.
+No global flags, mode policy, automatic rules, or user duration preferences are changed.
+
+Quick settings:
+Only OplusDndTile.handleSecondaryClick(Expandable) is replaced when modes is enabled and unlocked.
+The original handleClick remains in charge of the simple on/off action.
+The existing runtime redirect helper falls back to the original entry if synchronous launch fails.
+
+OOS settings:
+Scope interception to the exact ModesDialogDelegate and currentDialog owned by this module.
+openSettings and supported launchFromDialog actions use the native
+access$actualLaunchFromDialog(delegate, intent) helper, retaining ActivityStarter and transitions.
+Primary target, copied from OplusZenModePreferenceController.getZenModeIntent:
+  action: android.settings.ZEN_MODE_SETTINGS
+  package: com.oplus.notificationmanager
+Fallback target, from SettingsActivityPlugin$ZenModeSettings.onCreate:
+  action: android.intent.action.MAIN
+  component: com.oplus.notificationmanager/com.oplus.zenmode.zenmodesettings.ZenModeSettingsActivity
+  flag: FLAG_ACTIVITY_CLEAR_TOP
+Resolve the candidate at runtime before launching. The notificationmanager APK itself was not supplied.
+Both entries lead to the OOS main DND settings page. Per-rule navigation is not claimed:
+AOSP android.provider.extra.AUTOMATIC_ZEN_RULE_ID is not forwarded as an invented OOS parameter.
+Unrelated launchFromDialog actions remain unchanged.
+
+Duration:
+ZenModeInteractor.shouldAskForZenDuration returns true for manual DND only when zen_duration=-1.
+Then native ModesDialogDelegate.makeDndDurationDialog creates the duration picker.
+Other configured durations keep their normal native behavior.
+
+Limitations:
+Host tests cannot render OOS SystemUI Compose or exercise real notification/Zen services.
+The user must verify mode listing, toggle synchronization, duration choices (when enabled),
+settings navigation, reopening and tile-source animation on the phone.
+
+AOSP architecture reference (the supplied ROM is authoritative for reflection signatures):
+https://android.googlesource.com/platform/frameworks/base/+/5db0901c639ecae8d034c2b12b67ae26e749aed1/packages/SystemUI/src/com/android/systemui/statusbar/policy/ui/dialog/ModesDialogDelegate.kt

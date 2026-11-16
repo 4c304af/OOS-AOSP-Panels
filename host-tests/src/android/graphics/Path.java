@@ -1,0 +1,1 @@
+package android.graphics; public class Path {public enum Direction{CW,CCW} public void rewind(){}public void addRoundRect(float l,float t,float r,float b,float[] radii,Direction d){} public int l,t,r,b;public void addRoundRect(float x,float y,float z,float w,float rx,float ry,Direction d){l=(int)x;t=(int)y;r=(int)z;b=(int)w;}}

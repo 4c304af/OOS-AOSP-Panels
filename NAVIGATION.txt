@@ -1,0 +1,33 @@
+OOS settings navigation evidence — retained in 0.3.0
+
+Inputs supplied by the user:
+com.oplus.wirelesssettings: SHA256 6cd17d0845f43078e9fcfd3c631e9c0b6f8230f70efe8ad89880479c5a8c49a8
+com.android.settings: SHA256 49010e5d76e5505ccff54613a91a083c692d5c77619d7f00b04ca5192e66426f
+
+Reported intent routing:
+android.settings.NETWORK_PROVIDER_SETTINGS -> com.android.settings/.Settings$NetworkProviderSettingsActivity
+android.settings.WIFI_DETAILS_SETTINGS -> com.android.settings/.Settings$WifiDetailsSettingsActivity
+android.settings.WIFI_SETTINGS -> com.oplus.wirelesssettings/com.android.settings.SettingsActivity
+
+Verified OOS external details contract:
+Component: com.oplus.wirelesssettings/com.oplus.wirelesssettings.wifi.detail.WifiEditor
+Action: wireless.settings.WIFI_EDITOR
+Exported: true; required permission: oplus.permission.OPLUS_COMPONENT_SAFE
+The supplied SystemUI package report grants that permission.
+Top-level String key_chosen_wifientry_key: exact original selected WifiEntry.getKey().
+Top-level boolean wifi.details.extra.config=true selects OOS details.
+WifiEditor.onCreate forwards the key to its own SubSettingLauncher with key_change_data=false.
+The destination in this APK is x4.i, an OOS subclass of WifiNetworkDetailsFragment using COUI preferences.
+The module does not instantiate that obfuscated class or launch an unexported Activity.
+
+Hook scope: InternetDetailsContentController.startActivity(Intent,View), only when its callback belongs to our InternetDialogManager.
+Only NETWORK_PROVIDER_SETTINGS and WIFI_DETAILS_SETTINGS are rewritten.
+Original source View and startActivity implementation still perform dialog transitions and keyguard-aware launching.
+Missing selection falls back to OOS Wi-Fi list; no attempt to guess a network.
+User confirmed version 0.2.1 panel functionality and OOS navigation. Internet navigation routing is unchanged in 0.3.0.
+
+Bluetooth navigation in 0.6.33
+The module checks the BluetoothDetailsContentManager against the active contentManager in its own BluetoothDetailsContentViewModel. The original ActivityStarter receives the original View.
+See All originally sends com.android.settings.PREVIOUSLY_CONNECTED_DEVICE. In this ROM the OEM Bluetooth list is android.settings.BLUETOOTH_SETTINGS in com.oplus.wirelesssettings.
+The standard device gear sends com.android.settings.BLUETOOTH_DEVICE_DETAIL_SETTINGS with device_address inside :settings:show_fragment_args. Wireless Settings exports wireless.settings.DEVICE_PROFILES_SETTINGS with com.oplus.permission.safe.SECURITY, granted to this SystemUI. Its SettingsActivity maps this action to its own profile fragment, which reads the BluetoothDevice parcelable under device in its arguments. The module converts only the selected address. Other device-specific companion actions and pairing follow the original flow.
+The OplusBluetoothTile inherits BluetoothTile.getLongClickIntent(). When the combined grid is visible, its Bluetooth settings intent is restricted to the OOS list handler. The tile keeps its own launch and keyguard checks.

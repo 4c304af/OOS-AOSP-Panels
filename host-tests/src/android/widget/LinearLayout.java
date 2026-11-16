@@ -1,0 +1,1 @@
+package android.widget; public class LinearLayout extends android.view.ViewGroup {public static class LayoutParams extends android.view.ViewGroup.LayoutParams {public LayoutParams(){}public LayoutParams(int w,int h){super(w,h);}int start;public int getMarginStart(){return start;}public void setMarginStart(int s){start=s;}}}
