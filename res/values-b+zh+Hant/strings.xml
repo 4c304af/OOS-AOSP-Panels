@@ -38,6 +38,9 @@
     <string name="restart_ui">重啟系統介面</string>
     <string name="restart_title">重啟系統介面？</string>
     <string name="restart_explain">狀態列與快速設定會短暫消失後重新載入。首次使用需授予 root 權限。</string>
+    <string name="update_restart_title">模組已更新</string>
+    <string name="update_restart_explain">重啟系統介面後才能載入新版模組。狀態列和快速設定會短暫消失，並需要 root 權限。你也可以稍後使用首頁的按鈕手動重啟。</string>
+    <string name="later">稍後</string>
     <string name="cancel">取消</string>
     <string name="restart">重啟</string>
     <string name="test_version">%1$s · 測試版</string>

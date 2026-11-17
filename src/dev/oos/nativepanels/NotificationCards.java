@@ -42,6 +42,9 @@ final class NotificationCards {
   private static final int JOIN_TOP = 1, JOIN_BOTTOM = 2;
   private int peakSeams;
   private Method rowTranslation;
+  private Method rowViewState, stateTranslationY, animatingY, animatingHeight;
+  private Field stateHeight;
+  private Object heightProperty;
   private Field inShelf, removing;
   private Card paintedRow;
   private int replacedThisPull, tintedThisPull, boundPasses;
@@ -127,6 +130,7 @@ final class NotificationCards {
     drawableAlpha = Reflect.field(bg, "mDrawableAlpha");
     actualHeight = rowType.getMethod("getActualHeight");
     rowTranslation = optional(rowType, "getTranslation");
+    installStackMotion(r);
     inShelf = Reflect.optionalField(rowType, "mInShelf");
     removing = Reflect.optionalField(rowType, "mInRemovalAnimation");
     clipTop = rowType.getMethod("getClipTopAmount");
@@ -419,6 +423,24 @@ final class NotificationCards {
     return null;
   }
 
+  private void installStackMotion(PanelRuntime runtime) {
+    try {
+      Class<?> state = runtime.type("com.android.systemui.statusbar.notification.stack.ViewState");
+      Class<?> property = runtime.type("com.android.systemui.statusbar.notification.PhysicsProperty");
+      rowViewState = rowType.getMethod("getViewState");
+      stateTranslationY = state.getMethod("getYTranslation");
+      stateHeight = Reflect.field(rowViewState.getReturnType(), "height");
+      animatingY = state.getMethod("isAnimatingY", View.class);
+      animatingHeight = state.getMethod("isAnimating", View.class, property);
+      heightProperty = Reflect.field(runtime.type(ROW + "ExpandableView"), "HEIGHT_PROPERTY").get(null);
+    } catch (ReflectiveOperationException | RuntimeException absent) {
+      // Another ROM can retain the current-position seam policy without these APIs.
+      rowViewState = stateTranslationY = animatingY = animatingHeight = null;
+      stateHeight = null;
+      heightProperty = null;
+    }
+  }
+
   private Object withBackgroundClip(Card card, NotificationBackgroundTint.Draw original) throws Throwable {
     Card previous = backgroundClipCard;
     backgroundClipCard = card.nativeCornersOwned ? card : null;
@@ -700,6 +722,11 @@ final class NotificationCards {
         }
       }
       if (owner == null || childrenContainer.invoke(owner) != container) return -1;
+      // Being on the native animation renderer does not split a visible group.
+      // A fully collapsed group, however, must not join its hidden child surfaces.
+      if (!(boolean)childrenExpanded.invoke(owner) && !(boolean)expansionChanging.invoke(owner)
+          && !groupAnimationRunning(owner) && !userExpanding.getBoolean(owner)
+          && (userLocked == null || !(boolean)userLocked.invoke(owner))) return 0;
       List<?> children;
       if (attachedGroupChildren != null) children = (List<?>)attachedGroupChildren.invoke(container);
       else {
@@ -719,8 +746,7 @@ final class NotificationCards {
             || notificationParent.invoke(child) != owner) { previous = null; continue; }
         if (child.getVisibility() != View.VISIBLE || child.getAlpha() <= 0f || child.getHeight() == 0) continue;
         Card current = rows.get(child);
-        if (current == null || restricted(child) || current.bg.getVisibility() != View.VISIBLE
-            || current.bg.getAlpha() <= 0f || drawableAlpha.getInt(current.bg) <= 0
+        if (current == null || !current.hasVisibleGroupBackground()
             || !current.measureStackPosition(true)) { previous = null; continue; }
         if (previous != null && sameSeam(previous.stackBottom, current.stackTop,
             previous.stackX, current.stackX, previous.row.getWidth(), child.getWidth(),
@@ -808,6 +834,7 @@ final class NotificationCards {
     final RippleDrawable ripple;
     final NotificationBackgroundTint nativeTint = new NotificationBackgroundTint();
     final NotificationCornerTransition cornerTransition = new NotificationCornerTransition();
+    final NotificationCornerTransition nativeCornerTransition = new NotificationCornerTransition();
     final Set<View> shapedOverlays = Collections.newSetFromMap(new WeakHashMap<>());
     final Drawable.Callback callback;
     final float[] radii = new float[8];
@@ -920,21 +947,53 @@ final class NotificationCards {
         if (!inGroup && (boolean)groupChild.invoke(row)) return false;
         // Some cards are retained only to tint the native animation renderer. They
         // must not supply a stack seam, especially an expanded group's summary.
-        if (restricted(row)) return false;
+        if (inGroup ? !canTintBackground(row) : restricted(row)) return false;
         if ((inShelf != null && inShelf.getBoolean(row)) || (removing != null && removing.getBoolean(row))
             || (appearing != null && appearing.getBoolean(row)) || (boolean)gutsExposed.invoke(row)
-            || (boolean)launchRunning.invoke(row) || userExpanding.getBoolean(row)
-            || (userLocked != null && (boolean)userLocked.invoke(row))) return false;
+            || (boolean)launchRunning.invoke(row)
+            || (!inGroup && (userExpanding.getBoolean(row)
+                || (userLocked != null && (boolean)userLocked.invoke(row))))) return false;
         float slide = rowTranslation == null ? row.getTranslationX() : (float)rowTranslation.invoke(row);
         if (Math.abs(slide) > alignmentTolerance) return false;
         int height = (int)actualHeight.invoke(row);
         topClip = (int)clipTop.invoke(row);
         bottomClip = (int)clipBottom.invoke(row);
+        if (height <= Math.max(0, topClip) + Math.max(0, bottomClip)) return false;
         stackTop = row.getY();
+        if (rowViewState != null) {
+          try {
+            Object state = rowViewState.invoke(row);
+            if (state != null) {
+              float destinationTop = stackTop;
+              int destinationHeight = height;
+              if ((boolean)animatingY.invoke(null, row)) {
+                float translation = (float)stateTranslationY.invoke(state);
+                if (Float.isFinite(translation)) destinationTop = row.getTop() + translation;
+              }
+              if ((boolean)animatingHeight.invoke(null, row, heightProperty)) {
+                int target = stateHeight.getInt(state);
+                if (target > 0) destinationHeight = target;
+              }
+              // Neighboring springs need not be at the same fraction of their
+              // movement. Their destination, not that temporary gap, defines a seam.
+              stackTop = destinationTop;
+              height = destinationHeight;
+            }
+          } catch (ReflectiveOperationException | RuntimeException unavailable) { /* Use current geometry. */ }
+        }
         stackBottom = stackTop + height;
         stackX = row.getX();
         return height > Math.max(0, topClip) + Math.max(0, bottomClip);
       } catch (ReflectiveOperationException e) { return false; }
+    }
+
+    boolean hasVisibleGroupBackground() throws ReflectiveOperationException {
+      if (!groupHidesBackground.getBoolean(row) && bg.getVisibility() == View.VISIBLE
+          && bg.getAlpha() > 0f && drawableAlpha.getInt(bg) > 0) return true;
+      // OOS can hide the row fill while its registered overlay carries the animation.
+      for (View overlay : overlayBackgrounds.targetsForOwner(row, shadeRoot))
+        if (overlay.isShown() && overlay.getAlpha() > 0f) return true;
+      return false;
     }
 
     void prepare(boolean summary, boolean child) throws ReflectiveOperationException {
@@ -980,6 +1039,11 @@ final class NotificationCards {
       float bottom = hasCorners ? originalBottom : (float)bottomRadius.invoke(row);
       top = summary ? dp(28) : scaleRadius(top, innerRadius, outerRadius, dp(28));
       bottom = summary ? dp(28) : scaleRadius(bottom, innerRadius, outerRadius, dp(28));
+      // OOS also resets raw roundness without animation. Smooth that source
+      // independently of seam weights so an unchanged join mask cannot jump.
+      nativeCornerTransition.target(top, bottom, now, ValueAnimator.areAnimatorsEnabled());
+      top = nativeCornerTransition.top(now);
+      bottom = nativeCornerTransition.bottom(now);
       top += (innerRadius - top) * cornerTransition.top(now);
       bottom += (innerRadius - bottom) * cornerTransition.bottom(now);
       boolean changed = !shapePrepared;
@@ -1010,7 +1074,7 @@ final class NotificationCards {
       }
       applyNativeCorners();
       applyOverlayCorners();
-      if (cornerTransition.isRunning(now)) {
+      if (cornerTransition.isRunning(now) || nativeCornerTransition.isRunning(now)) {
         row.postInvalidateOnAnimation();
         overlayBackgrounds.invalidateOwner(row);
       }

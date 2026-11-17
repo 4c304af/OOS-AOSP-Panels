@@ -1,16 +1,23 @@
 package dev.oos.nativepanels;
 
-/** Continuous join amounts shared by the steady and native animation renderers. */
+/** Continuous per-edge values shared by the steady and native animation renderers. */
 final class NotificationCornerTransition {
   static final int TOP = 1, BOTTOM = 2;
   static final long DURATION_MILLIS = 180;
+  private static final double FOLLOW_END = -Math.expm1(-8d);
 
   private final Edge top = new Edge();
   private final Edge bottom = new Edge();
 
   void target(int joined, long now, boolean animationsEnabled) {
-    top.target((joined & TOP) != 0 ? 1f : 0f, now, animationsEnabled);
-    bottom.target((joined & BOTTOM) != 0 ? 1f : 0f, now, animationsEnabled);
+    top.target((joined & TOP) != 0 ? 1f : 0f, now, animationsEnabled, false);
+    bottom.target((joined & BOTTOM) != 0 ? 1f : 0f, now, animationsEnabled, false);
+  }
+
+  /** Follow native pixel radii without restarting a slow acceleration on every native frame. */
+  void target(float topValue, float bottomValue, long now, boolean animationsEnabled) {
+    top.target(topValue, now, animationsEnabled, true);
+    bottom.target(bottomValue, now, animationsEnabled, true);
   }
 
   float top(long now) { return top.value(now); }
@@ -20,19 +27,22 @@ final class NotificationCornerTransition {
 
   private static final class Edge {
     private boolean initialized;
+    private boolean followsNative;
     private float from, to;
     private long started;
 
-    void target(float target, long now, boolean animate) {
+    void target(float target, long now, boolean animate, boolean followNative) {
       if (!initialized || !animate) {
         initialized = true;
         from = to = target;
         started = now;
+        followsNative = followNative;
       } else if (target != to) {
         // A reversal starts at the visible amount, not the previous endpoint.
         from = value(now);
         to = target;
         started = now;
+        followsNative = followNative;
       }
     }
 
@@ -40,7 +50,8 @@ final class NotificationCornerTransition {
       if (from == to || now - started >= DURATION_MILLIS) return to;
       if (now <= started) return from;
       float fraction = (float)(now - started) / DURATION_MILLIS;
-      return from + (to - from) * ease(fraction);
+      float progress = followsNative ? (float)(-Math.expm1(-8d * fraction) / FOLLOW_END) : ease(fraction);
+      return from + (to - from) * progress;
     }
 
     boolean isRunning(long now) {

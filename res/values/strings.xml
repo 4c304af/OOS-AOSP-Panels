@@ -38,6 +38,9 @@
     <string name="restart_ui">Restart System UI</string>
     <string name="restart_title">Restart System UI?</string>
     <string name="restart_explain">The status bar and Quick Settings will briefly disappear. Grant root access the first time you restart.</string>
+    <string name="update_restart_title">Module updated</string>
+    <string name="update_restart_explain">Restart System UI to load the updated module. The status bar and Quick Settings will briefly disappear, and root access is required. You can also restart later using the button on the home screen.</string>
+    <string name="later">Later</string>
     <string name="cancel">Cancel</string>
     <string name="restart">Restart</string>
     <string name="test_version">%1$s · Test build</string>

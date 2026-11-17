@@ -6,6 +6,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.view.View;
 import android.widget.FrameLayout;
 import java.lang.reflect.Constructor;
@@ -63,6 +64,13 @@ public class NotificationGroupBackgroundTest {
     set(cards, "attachedGroupChildren", Children.class.getMethod("getAttachedChildren"));
     bindRowMethod("privateLayout", "getPrivateLayout");
     bindRowMethod("actualHeight", "getActualHeight");
+    bindRowMethod("userLocked", "isUserLocked");
+    bindRowMethod("rowViewState", "getViewState");
+    set(cards, "stateTranslationY", StackState.class.getMethod("getYTranslation"));
+    set(cards, "stateHeight", StackState.class.getField("height"));
+    set(cards, "animatingY", StackState.class.getMethod("isAnimatingY", View.class));
+    set(cards, "animatingHeight", StackState.class.getMethod("isAnimatingHeight", View.class, Object.class));
+    set(cards, "heightProperty", new Object());
     bindRowMethod("clipTop", "getClipTopAmount");
     bindRowMethod("clipBottom", "getClipBottomAmount");
     bindRowMethod("topRadius", "getTopCornerRadius");
@@ -72,6 +80,8 @@ public class NotificationGroupBackgroundTest {
     bindRowField("groupHidesBackground", "hidesBackground");
     bindRowField("userExpanding", "dragging");
     bindRowField("appearing", "appearing");
+    bindRowField("inShelf", "shelf");
+    bindRowField("removing", "removing");
     set(cards, "bgWidth", Background.class.getMethod("getActualWidth"));
     set(cards, "bgHeight", Background.class.getMethod("getActualHeight"));
     set(cards, "alignRight", Background.class.getMethod("isAlignedToRight"));
@@ -245,7 +255,7 @@ public class NotificationGroupBackgroundTest {
     assertEquals(0, get(lastCard, "joined"));
   }
 
-  @Test public void groupJoinsFollowVisibilityAndResetDuringCollapseOrSwipes() throws Exception {
+  @Test public void groupJoinsFollowVisibilityAndSwipesWithoutSplittingForVerticalExpansion() throws Exception {
     summary.expanded = true;
     Row second = addChild(82), third = addChild(164);
     Object firstCard = remember(child), secondCard = remember(second), thirdCard = remember(third);
@@ -262,8 +272,8 @@ public class NotificationGroupBackgroundTest {
     second.setTranslationX(0);
     second.dragging = true;
     join();
-    assertEquals(0, get(firstCard, "joined"));
-    assertEquals(0, get(secondCard, "joined"));
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(1, get(secondCard, "joined"));
     second.dragging = false;
     summary.expanded = false;
     join();
@@ -271,7 +281,7 @@ public class NotificationGroupBackgroundTest {
     assertEquals(0, get(secondCard, "joined"));
   }
 
-  @Test public void groupJoinsYieldToClippingPrivacyAndTransitionState() throws Exception {
+  @Test public void groupJoinsYieldToClippingAndPrivacyButSurviveGroupAnimationState() throws Exception {
     summary.expanded = true;
     Row second = addChild(82);
     Object firstCard = remember(child), secondCard = remember(second);
@@ -280,7 +290,7 @@ public class NotificationGroupBackgroundTest {
     assertEquals(0, get(firstCard, "joined"));
     assertEquals(0, get(secondCard, "joined"));
     child.clipBottomAmount = 0;
-    for (String name : new String[]{"keyguard", "publicContent", "changing", "dragging", "childrenAnimating"}) {
+    for (String name : new String[]{"keyguard", "publicContent", "headsUp", "guts", "launching", "appearing"}) {
       Row.class.getField(name).setBoolean(summary, true);
       join();
       assertEquals(name, 0, get(firstCard, "joined"));
@@ -290,6 +300,13 @@ public class NotificationGroupBackgroundTest {
     join();
     assertEquals(2, get(firstCard, "joined"));
     assertEquals(1, get(secondCard, "joined"));
+    for (String name : new String[]{"changing", "dragging", "childrenAnimating", "locked"}) {
+      Row.class.getField(name).setBoolean(summary, true);
+      join();
+      assertEquals(name, 2, get(firstCard, "joined"));
+      assertEquals(name, 1, get(secondCard, "joined"));
+      Row.class.getField(name).setBoolean(summary, false);
+    }
   }
 
   @Test public void fallbackOnlySummaryCannotJoinTheNextNotificationAcrossAnExpandedGroup() throws Exception {
@@ -323,8 +340,8 @@ public class NotificationGroupBackgroundTest {
     assertTrue(restricted(child));
     assertTrue((boolean)call(cards, "canTintBackground", new Class<?>[]{View.class}, child));
     join();
-    assertEquals(0, get(firstCard, "joined"));
-    assertEquals(0, get(secondCard, "joined"));
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(1, get(secondCard, "joined"));
     ((RowExtension)summary.extension).animating = false;
     assertFalse(restricted(child));
     join();
@@ -343,6 +360,170 @@ public class NotificationGroupBackgroundTest {
     set(cards, "rowExtension", null);
     set(cards, "extensionChildrenAnimating", null);
     assertFalse(restricted(summary));
+  }
+
+  @Test public void movingNeighborsKeepTheirSeamFromNativeDestinationYAndHeight() throws Exception {
+    Row lower = addStandalone(25);
+    standalone.layout(0, 12, 200, 92);
+    standalone.setTranslationY(200);
+    lower.setTranslationY(360);
+    standalone.animatingY = lower.animatingY = true;
+    standalone.state.y = 400;
+    standalone.animatingHeight = true;
+    standalone.state.height = 120;
+    lower.state.y = 509;
+    Object upperCard = remember(standalone), lowerCard = remember(lower);
+    join();
+    assertEquals(412f, (float)get(upperCard, "stackTop"), 0f);
+    assertEquals(532f, (float)get(upperCard, "stackBottom"), 0f);
+    assertEquals(534f, (float)get(lowerCard, "stackTop"), 0f);
+    assertEquals(2, get(upperCard, "joined"));
+    assertEquals(1, get(lowerCard, "joined"));
+    // Different springs can temporarily make a wide gap or even overlap.
+    for (float y : new float[]{440, 290, 600}) {
+      lower.setTranslationY(y);
+      join();
+      assertEquals(2, get(upperCard, "joined"));
+      assertEquals(1, get(lowerCard, "joined"));
+    }
+    standalone.setTranslationY(400);
+    standalone.layout(0, 12, 200, 132);
+    lower.setTranslationY(509);
+    standalone.animatingY = standalone.animatingHeight = lower.animatingY = false;
+    join();
+    assertEquals(2, get(upperCard, "joined"));
+    assertEquals(1, get(lowerCard, "joined"));
+  }
+
+  @Test public void destinationGeometryStillRejectsRealGapsCrossingsAndSectionHeaders() throws Exception {
+    Row lower = addStandalone(0);
+    lower.setTranslationY(82);
+    standalone.animatingY = lower.animatingY = true;
+    standalone.state.y = 400;
+    lower.state.y = 520;
+    Object upperCard = remember(standalone), lowerCard = remember(lower);
+    join();
+    assertEquals(0, get(upperCard, "joined"));
+    assertEquals(0, get(lowerCard, "joined"));
+    lower.state.y = 300;
+    join();
+    assertEquals(0, get(upperCard, "joined"));
+    lower.state.y = 482;
+    join();
+    assertEquals(2, get(upperCard, "joined"));
+    View section = new View(stack.getContext());
+    stack.addView(section, stack.indexOfChild(lower));
+    section.layout(0, 0, 200, 20);
+    join();
+    assertEquals(0, get(upperCard, "joined"));
+    assertEquals(0, get(lowerCard, "joined"));
+  }
+
+  @Test public void staleOrUnavailableMotionStateFallsBackToCurrentGeometry() throws Exception {
+    Row lower = addStandalone(0);
+    lower.setTranslationY(82);
+    standalone.state.y = 400;
+    standalone.state.height = 140;
+    lower.state.y = 700;
+    Object upperCard = remember(standalone), lowerCard = remember(lower);
+    join();
+    assertEquals(2, get(upperCard, "joined"));
+    standalone.animatingY = lower.animatingY = true;
+    standalone.state.y = 200;
+    lower.state.y = 282;
+    join();
+    // An inactive height animation must not reuse its stale target height.
+    assertEquals(280f, (float)get(upperCard, "stackBottom"), 0f);
+    assertEquals(2, get(upperCard, "joined"));
+    set(cards, "rowViewState", null);
+    lower.state.y = 700;
+    join();
+    assertEquals(2, get(upperCard, "joined"));
+    assertEquals(1, get(lowerCard, "joined"));
+  }
+
+  @Test public void animatedDestinationDoesNotBypassSwipesClippingOrRemoval() throws Exception {
+    Row lower = addStandalone(0);
+    lower.setTranslationY(200);
+    standalone.animatingY = lower.animatingY = true;
+    standalone.state.y = 300;
+    lower.state.y = 382;
+    Object upperCard = remember(standalone), lowerCard = remember(lower);
+    lower.setTranslationX(30);
+    join();
+    assertEquals(0, get(upperCard, "joined"));
+    lower.setTranslationX(0);
+    standalone.clipBottomAmount = 1;
+    join();
+    assertEquals(0, get(lowerCard, "joined"));
+    standalone.clipBottomAmount = 0;
+    for (String name : new String[]{"shelf", "removing", "guts", "launching", "appearing"}) {
+      Row.class.getField(name).setBoolean(standalone, true);
+      join();
+      assertEquals(name, 0, get(lowerCard, "joined"));
+      Row.class.getField(name).setBoolean(standalone, false);
+    }
+    join();
+    assertEquals(2, get(upperCard, "joined"));
+    assertEquals(1, get(lowerCard, "joined"));
+  }
+
+  @Test public void groupRendererHandoffUsesVisibleOwnedOverlayWithoutChangingPaintingRules() throws Exception {
+    summary.expanded = true;
+    summary.childrenAnimating = true;
+    Row second = addChild(82);
+    Object firstCard = remember(child), secondCard = remember(second);
+    child.hidesBackground = true;
+    child.bg.setVisibility(View.INVISIBLE);
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    View overlay = new View(stack.getContext());
+    overlay.setBackground(new ColorDrawable(Color.RED));
+    stack.addView(overlay);
+    overlay.layout(0, 0, 200, 80);
+    set(cards, "shadeRoot", stack.getRootView());
+    NotificationOverlayRegistry registry = (NotificationOverlayRegistry)get(cards, "overlayBackgrounds");
+    registry.register(overlay.getBackground(), overlay, child);
+    join();
+    assertEquals(2, get(firstCard, "joined"));
+    assertEquals(1, get(secondCard, "joined"));
+    assertTrue(restricted(child));
+    assertEquals(Color.TRANSPARENT, draw(firstCard).getPixel(100, 40));
+    overlay.setAlpha(0f);
+    join();
+    assertEquals(0, get(firstCard, "joined"));
+    assertEquals(0, get(secondCard, "joined"));
+  }
+
+  @Test public void aFullyClippedCurrentRowCannotJoinUsingItsLargerDestinationHeight() throws Exception {
+    Row lower = addStandalone(0);
+    standalone.animatingY = lower.animatingY = true;
+    standalone.animatingHeight = lower.animatingHeight = true;
+    standalone.state.y = 300;
+    lower.state.y = 422;
+    standalone.state.height = lower.state.height = 120;
+    Object upperCard = remember(standalone), lowerCard = remember(lower);
+    standalone.clipTopAmount = 80;
+    join();
+    assertEquals(0, get(upperCard, "joined"));
+    assertEquals(0, get(lowerCard, "joined"));
+    standalone.clipTopAmount = 0;
+    lower.clipBottomAmount = 80;
+    join();
+    assertEquals(0, get(upperCard, "joined"));
+    assertEquals(0, get(lowerCard, "joined"));
+    lower.clipBottomAmount = 0;
+    join();
+    assertEquals(2, get(upperCard, "joined"));
+    assertEquals(1, get(lowerCard, "joined"));
+  }
+
+  private Row addStandalone(int top) {
+    Row row = new Row(stack.getContext());
+    stack.addView(row);
+    layoutRow(row);
+    row.layout(0, top, 200, top + 80);
+    return row;
   }
 
   private Row addChild(float y) {
@@ -417,6 +598,8 @@ public class NotificationGroupBackgroundTest {
   public static final class Row extends FrameLayout {
     public boolean keyguard, publicContent, headsUp, hidesBackground, dragging, appearing;
     public boolean child, summary, expanded, changing, guts, launching, childrenAnimating;
+    public boolean locked, shelf, removing, animatingY, animatingHeight;
+    public final StackState state = new StackState();
     public Row notificationParent;
     public ExtensionMarker extension = new RowExtension();
     public int clipTopAmount, clipBottomAmount;
@@ -439,6 +622,8 @@ public class NotificationGroupBackgroundTest {
     public boolean isHeadsUpState() { return headsUp; }
     public boolean areGutsExposed() { return guts; }
     public boolean isExpandAnimationRunning() { return launching; }
+    public boolean isUserLocked() { return locked; }
+    public StackState getViewState() { return state; }
     public Children getChildrenContainer() { return children; }
     public FrameLayout getPrivateLayout() { return content; }
     public int getActualHeight() { return getHeight(); }
@@ -446,6 +631,14 @@ public class NotificationGroupBackgroundTest {
     public int getClipBottomAmount() { return clipBottomAmount; }
     public float getTopCornerRadius() { return 16f; }
     public float getBottomCornerRadius() { return 16f; }
+  }
+
+  public static final class StackState {
+    public int height = 80;
+    public float y;
+    public float getYTranslation() { return y; }
+    public static boolean isAnimatingY(View view) { return ((Row)view).animatingY; }
+    public static boolean isAnimatingHeight(View view, Object property) { return ((Row)view).animatingHeight; }
   }
 
   public static final class Children extends FrameLayout {

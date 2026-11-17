@@ -52,6 +52,8 @@ public final class MainActivity extends AppCompatActivity {
     DynamicColors.applyToActivityIfAvailable(this);
     super.onCreate(state);
     permissionScope = ((PanelApplication)getApplication()).permissionScope();
+    getSupportFragmentManager().setFragmentResultListener(
+        UpdateRestartPrompt.REQUEST_RESTART, this, (key, result) -> restartSystemUi());
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
     getWindow().setStatusBarColor(Color.TRANSPARENT);
     getWindow().setNavigationBarColor(Color.TRANSPARENT);
@@ -85,6 +87,11 @@ public final class MainActivity extends AppCompatActivity {
     super.onResume();
     permissionScope.refresh();
     request("status", null, false);
+  }
+
+  @Override protected void onPostResume() {
+    super.onPostResume();
+    UpdateRestartPrompt.showIfNeeded(this);
   }
 
   @Override protected void onStart() {

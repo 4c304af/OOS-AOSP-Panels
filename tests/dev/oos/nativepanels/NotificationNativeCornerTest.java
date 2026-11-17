@@ -96,15 +96,68 @@ public class NotificationNativeCornerTest {
     call(card, "captureNativeCorners", new Class<?>[]{float.class, float.class}, 8f, 16f);
     call(card, "resolveCorners", new Class<?>[]{long.class}, 110L);
     call(card, "applyNativeCorners", new Class<?>[0]);
+    // The new raw value is a source target; it must not abruptly replace the
+    // currently displayed radius before the bounded source transition finishes.
+    update(card, 290);
     float expectedTop = standalone.bg.radii[0];
     assertTrue(expectedTop > 8f);
-    for (long now = 111; now < 200; now++) update(card, now);
+    for (long now = 291; now < 400; now++) update(card, now);
     assertEquals(8f, (float)get(card, "originalTop"), 0f);
     assertEquals(16f, (float)get(card, "originalBottom"), 0f);
     assertEquals(expectedTop, standalone.bg.radii[0], 0f);
     assertSameShape(card, standalone);
     cards.clear();
     assertCorners(standalone, 8f, 16f);
+  }
+
+  @Test public void instantaneousNativeRoundnessResetIsContinuousEvenWithAnUnchangedJoinMask() throws Exception {
+    Object card = card(standalone);
+    transition(card).target(0, 100, false);
+    update(card, 100);
+    float outer = standalone.bg.radii[0];
+    call(card, "captureNativeCorners", new Class<?>[]{float.class, float.class}, 0f, 16f);
+    update(card, 200);
+    assertEquals(outer, standalone.bg.radii[0], 0f);
+    assertEquals(outer, standalone.bg.radii[4], 0f);
+    assertSameShape(card, standalone);
+    NotificationCornerTransition source = (NotificationCornerTransition)get(card, "nativeCornerTransition");
+    assertTrue(source.isRunning(200));
+    assertFalse(transition(card).isRunning(200));
+    update(card, 216);
+    assertTrue(standalone.bg.radii[0] > 0f);
+    assertTrue(standalone.bg.radii[0] < outer);
+    update(card, 380);
+    assertEquals(0f, standalone.bg.radii[0], 0f);
+    assertFalse(source.isRunning(380));
+    int calls = standalone.bg.radiusSetCalls;
+    for (long now = 381; now < 501; now++) update(card, now);
+    assertEquals(calls, standalone.bg.radiusSetCalls);
+    cards.clear();
+    assertCorners(standalone, 0f, 16f);
+  }
+
+  @Test public void nativeSourceReversalStartsAtVisibleRadiiAndRestoresTheLatestRawRequest() throws Exception {
+    Object card = card(standalone);
+    transition(card).target(BOTTOM, 100, false);
+    update(card, 100);
+    float outer = standalone.bg.radii[0];
+    float inner = standalone.bg.radii[4];
+    call(card, "captureNativeCorners", new Class<?>[]{float.class, float.class}, 0f, 16f);
+    update(card, 200);
+    update(card, 216);
+    float visible = standalone.bg.radii[0];
+    assertTrue(visible > 0f && visible < outer);
+    assertEquals(inner, standalone.bg.radii[4], 0f);
+    call(card, "captureNativeCorners", new Class<?>[]{float.class, float.class}, 16f, 8f);
+    update(card, 216);
+    assertEquals(visible, standalone.bg.radii[0], 0f);
+    assertEquals(inner, standalone.bg.radii[4], 0f);
+    assertSameShape(card, standalone);
+    update(card, 396);
+    assertEquals(outer, standalone.bg.radii[0], 0f);
+    assertEquals(inner, standalone.bg.radii[4], 0f);
+    cards.clear();
+    assertCorners(standalone, 16f, 8f);
   }
 
   @Test public void directNativeRebindBecomesTheNewRestorationSource() throws Exception {
