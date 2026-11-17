@@ -470,7 +470,14 @@ public class NotificationGroupBackgroundTest {
   public static final class Background extends View {
     public float[] radii = {16, 16, 16, 16, 16, 16, 16, 16};
     public int drawableAlpha = 255;
+    public int radiusSetCalls;
+    public boolean mBottomIsRounded = true;
     Background(Context context) { super(context); }
+    public void setRadius(float top, float bottom, boolean animate) {
+      radiusSetCalls++;
+      for (int i = 0; i < radii.length; i++) radii[i] = i < 4 ? top : bottom;
+      mBottomIsRounded = bottom != 0f;
+    }
     public int getActualWidth() { return getWidth(); }
     public int getActualHeight() { return getHeight(); }
     public boolean isAlignedToRight() { return false; }

@@ -6,6 +6,8 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Collections;
 
 /** Exact bindings reported by the native overlay factory, without retaining its Views. */
 final class NotificationOverlayRegistry {
@@ -43,6 +45,21 @@ final class NotificationOverlayRegistry {
 
   View ownerOf(Drawable drawable, View shadeRoot) {
     return shadeRoot == null ? null : ownerOf(drawable, shadeRoot, true);
+  }
+
+  List<View> targetsForOwner(View owner, View shadeRoot) {
+    prune();
+    if (entries.isEmpty() || owner == null || shadeRoot == null) return Collections.emptyList();
+    ArrayList<View> candidates = new ArrayList<>();
+    for (Entry entry : entries) {
+      if (entry.getter == null && entry.owner.get() == owner) {
+        View target = entry.target.get();
+        if (target != null) candidates.add(target);
+      }
+    }
+    // Validate after collecting: validation can prune a replaced default drawable.
+    candidates.removeIf(target -> ownerOf(target.getBackground(), shadeRoot) != owner);
+    return candidates;
   }
 
   private View ownerOf(Drawable drawable, View shadeRoot, boolean enforceRoot) {

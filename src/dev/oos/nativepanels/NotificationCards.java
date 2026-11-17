@@ -1,17 +1,20 @@
 package dev.oos.nativepanels;
 
 import android.app.Notification;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Path;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.service.notification.StatusBarNotification;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -43,6 +46,12 @@ final class NotificationCards {
   private Card paintedRow;
   private int replacedThisPull, tintedThisPull, boundPasses;
   private final NotificationOverlayRegistry overlayBackgrounds = new NotificationOverlayRegistry();
+  private final NotificationOverlayCorners overlayCorners = new NotificationOverlayCorners();
+  private Method nativeSetRadius;
+  private Method nativeSyncClip, nativeClipBackground;
+  private Field nativeBackgroundExtension;
+  private Method nativeBlurProxy;
+  private Card backgroundClipCard;
   private final Set<Method> overlayDrawMethods = new HashSet<>();
   private int overlayFlushes, overlayDraws;
   private String overlayHook = "not installed";
@@ -131,6 +140,8 @@ final class NotificationCards {
     bottomClips = Reflect.optionalField(bg, "mBottomAmountClips");
     topRadius = rowType.getMethod("getTopCornerRadius");
     bottomRadius = rowType.getMethod("getBottomCornerRadius");
+    installNativeCorners(r, bg);
+    installNativeClip(r);
     gutsExposed = rowType.getMethod("areGutsExposed");
     launchRunning = rowType.getMethod("isExpandAnimationRunning");
     userLocked = optional(rowType, "isUserLocked");
@@ -161,7 +172,9 @@ final class NotificationCards {
             if (tint) {
               tintedThisPull++;
               lastPaint = "native background tinted";
-              return nativeCard.nativeTint.draw((Canvas)c.getArg(0), nativeCard.bg, width, height, c::proceed);
+              int nativeWidth = width, nativeHeight = height;
+              return withBackgroundClip(nativeCard, () -> nativeCard.nativeTint.draw(
+                  (Canvas)c.getArg(0), nativeCard.bg, nativeWidth, nativeHeight, c::proceed));
             }
           }
           return c.proceed();
@@ -249,6 +262,15 @@ final class NotificationCards {
                       overlayBackgrounds.registerDefault(inner, drawable, view, row, overlayDefaultDrawable);
                     }
                   }
+                  Card card = rows.get(row);
+                  if (enabled && card != null && card.shapePrepared && canTintBackground(row)) {
+                    // Native flush clones the row's base layer. If it copied our
+                    // owned shape, remember the native source for later release.
+                    if (card.nativeCornersOwned && overlayBackgrounds.ownerOf(drawable, shadeRoot) == row)
+                      overlayCorners.nativeFallbackSource(view, card.appliedTop, card.appliedBottom,
+                          card.originalTop, card.originalBottom);
+                    card.applyOverlayCorners();
+                  }
                 }
               }
             } catch (ReflectiveOperationException | RuntimeException unavailable) {
@@ -295,6 +317,118 @@ final class NotificationCards {
         });
     overlayDrawMethods.add(draw);
     deoptimizeOverlayMethod(runtime, draw);
+  }
+
+  private void installNativeCorners(PanelRuntime runtime, Class<?> backgroundType) {
+    try {
+      Method setter = Reflect.method(backgroundType, "setRadius", float.class, float.class, boolean.class);
+      runtime.module.hook(setter).setId("native-panels:notification-corners")
+          .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+            View backgroundView = (View)chain.getThisObject();
+            Card card = cardForBackground(backgroundView);
+            if (card == null || card.applyingNativeCorners) return chain.proceed();
+            card.prepareNativeBlur();
+            card.captureNativeCorners((float)chain.getArg(0), (float)chain.getArg(1));
+            boolean apply = enabled && shadeRoot != null && card.row.getRootView() == shadeRoot;
+            try {
+              apply &= canTintBackground(card.row);
+              if (apply) card.resolveCorners(SystemClock.uptimeMillis());
+            } catch (ReflectiveOperationException | RuntimeException unavailable) { apply = false; }
+            if (!apply) {
+              card.releaseCorners();
+              return chain.proceed();
+            }
+            card.nativeCornersOwned = true;
+            card.appliedTop = card.radii[0];
+            card.appliedBottom = card.radii[4];
+            Object result = chain.proceed(new Object[]{card.appliedTop, card.appliedBottom, chain.getArg(2)});
+            if (card.nativeBlur != null) card.nativeBlur.written();
+            // This flag also changes height clipping. Preserve the native decision;
+            // owning the cosmetic radius must not change expansion bounds.
+            if (bottomRounded != null) bottomRounded.setBoolean(card.bg, card.originalBottom != 0f);
+            card.applyOverlayCorners();
+            return result;
+          });
+      nativeSetRadius = setter;
+      try {
+        nativeBackgroundExtension = Reflect.field(backgroundType, "mExt");
+        nativeBlurProxy = Reflect.method(runtime.type(
+            "com.oplus.systemui.statusbar.notification.row.NotificationBackgroundViewExtImp"), "getViewBlurProxy");
+      } catch (ReflectiveOperationException | RuntimeException absent) { /* Optional hardware blur. */ }
+      deoptimizeOverlayMethod(runtime, setter);
+      try {
+        // This confirmed OOS caller may have inlined setRadius before module load.
+        deoptimizeOverlayMethod(runtime, Reflect.method(runtime.type(ROW + "ActivatableNotificationView"),
+            "applyRoundnessAndInvalidate"));
+      } catch (ReflectiveOperationException | RuntimeException absent) { /* Optional vendor caller. */ }
+    } catch (ReflectiveOperationException | RuntimeException unavailable) {
+      nativeSetRadius = null;
+    }
+  }
+
+  private void installNativeClip(PanelRuntime runtime) {
+    try {
+      Class<?> outline = runtime.type(ROW + "ExpandableOutlineView");
+      Method path = Reflect.method(outline, "getRoundedRectPath", int.class, int.class, int.class, int.class,
+          float.class, float.class, Path.class);
+      runtime.module.hook(path).setId("native-panels:notification-background-clip")
+          .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+            View row = (View)chain.getThisObject();
+            if (backgroundClipCard == null || backgroundClipCard.row != row) return chain.proceed();
+            // Keep the native animated rectangle; only this background's corner
+            // arguments change. Content and the row outline keep their own paths.
+            return chain.proceed(new Object[]{chain.getArg(0), chain.getArg(1), chain.getArg(2), chain.getArg(3),
+                backgroundClipRadius(row, (float)chain.getArg(4), true),
+                backgroundClipRadius(row, (float)chain.getArg(5), false), chain.getArg(6)});
+          });
+      Class<?> extension = runtime.type("com.oplus.systemui.statusbar.notification.row.OplusActivatableNotificationViewExImpl");
+      Method backgroundView = Reflect.method(extension, "getNotiBgView");
+      Method sync = Reflect.method(extension, "syncClipCanvasToBgView",
+          float.class, int.class, int.class, float.class, int.class, int.class);
+      runtime.module.hook(sync).setId("native-panels:notification-background-clip-sync")
+          .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+            Card card = cardForBackground((View)backgroundView.invoke(chain.getThisObject()));
+            if (card == null || card.applyingNativeCorners || !card.nativeCornersOwned || !enabled
+                || shadeRoot == null || card.row.getRootView() != shadeRoot || !canTintBackground(card.row)) {
+              // A native call outside our surface becomes the current geometry;
+              // release must not replay a stale clip rectangle over that write.
+              if (card != null && !card.applyingNativeCorners) card.clearNativeClipOwnership();
+              return chain.proceed();
+            }
+            card.prepareNativeBlur();
+            if (card.nativeBlur != null) card.nativeBlur.nativeRadius((float)chain.getArg(0), (float)chain.getArg(3));
+            Object result = chain.proceed(card.nativeClipArguments(chain.getThisObject(), (float)chain.getArg(0),
+                (int)chain.getArg(1), (int)chain.getArg(2), (float)chain.getArg(3),
+                (int)chain.getArg(4), (int)chain.getArg(5)));
+            if (card.nativeBlur != null) card.nativeBlur.written();
+            return result;
+          });
+      nativeSyncClip = sync;
+      nativeClipBackground = backgroundView;
+      deoptimizeOverlayMethod(runtime, path);
+      deoptimizeOverlayMethod(runtime, sync);
+      deoptimizeOverlayMethod(runtime, Reflect.method(outline, "getClipPath", boolean.class));
+    } catch (ReflectiveOperationException | RuntimeException absent) { /* Optional native clip support. */ }
+  }
+
+  private Card cardForBackground(View view) {
+    if (view == null) return null;
+    Card card = rows.get(view.getParent());
+    if (card != null && card.bg == view) return card;
+    for (Card candidate : rows.values()) if (candidate.bg == view) return candidate;
+    return null;
+  }
+
+  private Object withBackgroundClip(Card card, NotificationBackgroundTint.Draw original) throws Throwable {
+    Card previous = backgroundClipCard;
+    backgroundClipCard = card.nativeCornersOwned ? card : null;
+    try { return original.run(); }
+    finally { backgroundClipCard = previous; }
+  }
+
+  private float backgroundClipRadius(View row, float nativeRadius, boolean top) {
+    Card card = backgroundClipCard;
+    return card != null && card.row == row ? card.radii[top ? 0 : 4] : nativeRadius;
   }
 
   private static void deoptimizeOverlayMethod(PanelRuntime runtime, Method method) {
@@ -543,11 +677,13 @@ final class NotificationCards {
     }
     rowParents.clear();
     peakSeams = Math.max(peakSeams, seams);
+    long now = SystemClock.uptimeMillis();
+    boolean animate = ValueAnimator.areAnimatorsEnabled();
     for (Card card : rows.values()) {
-      if (card.joined != card.nextJoined) {
-        card.joined = card.nextJoined;
-        card.row.invalidate();
-      }
+      card.joined = card.nextJoined;
+      card.cornerTransition.target(card.joined, now, animate);
+      try { card.updateCorners(now); }
+      catch (ReflectiveOperationException | RuntimeException unavailable) { problem = unavailable.toString(); }
     }
   }
 
@@ -638,15 +774,19 @@ final class NotificationCards {
   }
 
   private void remove(Card c) {
+    c.releaseCorners();
     c.restore(); c.ripple.jumpToCurrentState(); c.ripple.setCallback(null); c.row.invalidate(); c.bg.invalidate();
     overlayBackgrounds.invalidateOwner(c.row);
   }
 
   void clear() {
+    if (rows.isEmpty() && shadeRoot == null) return;
     for (Card c : rows.values()) remove(c);
     // OOS can reuse an overlay without another factory call on the next shade pull.
     // Keep only weak factory identity metadata; redraw with native colors while inactive.
     overlayBackgrounds.invalidateAll();
+    overlayCorners.clear();
+    rowParents.clear();
     rows.clear(); shadeRoot = null;
   }
 
@@ -657,6 +797,7 @@ final class NotificationCards {
         " eligible=" + commonRows + " templates=" + lastTemplates + " insets=" + lastModified +
         " draws=" + drawCount + " drawsThisPull=" + drawsThisPull + " replacedChild=" + replacedThisPull + " tintedChild=" + tintedThisPull + " boundPasses=" + boundPasses + " lastPaint=" + lastPaint + " restricted=" + restrictedRows + " other=" + otherStyles +
         " overlayHook=" + overlayHook + " overlayDrawHooks=" + overlayDrawMethods.size() + " overlayBindings=" + overlayFlushes + " overlayDraws=" + overlayDraws +
+        " nativeCorners=" + (nativeSetRadius != null) + "/" + (nativeSyncClip != null) +
         " kinds=" + seenSurfaces + " tint=#" + Integer.toHexString(color) : "unavailable") + (problem.isEmpty() ? "" : " " + problem);
   }
 
@@ -666,6 +807,8 @@ final class NotificationCards {
     final GradientDrawable base;
     final RippleDrawable ripple;
     final NotificationBackgroundTint nativeTint = new NotificationBackgroundTint();
+    final NotificationCornerTransition cornerTransition = new NotificationCornerTransition();
+    final Set<View> shapedOverlays = Collections.newSetFromMap(new WeakHashMap<>());
     final Drawable.Callback callback;
     final float[] radii = new float[8];
     final ArrayList<Inset> insets = new ArrayList<>();
@@ -675,6 +818,11 @@ final class NotificationCards {
     int joined, nextJoined, topClip, bottomClip;
     float stackTop, stackBottom, stackX;
     boolean present;
+    boolean shapePrepared, nativeCornersOwned, applyingNativeCorners;
+    float originalTop, originalBottom, appliedTop, appliedBottom;
+    Object nativeClipOwner;
+    Object[] nativeClipSource, nativeClipOwned;
+    NotificationNativeBlurSnapshot nativeBlur;
 
     Card(View row, View bg) throws ReflectiveOperationException {
       this.row = row; this.bg = bg;
@@ -709,6 +857,8 @@ final class NotificationCards {
       int radiusId = res.getIdentifier("notification_corner_radius", "dimen", row.getContext().getPackageName());
       outerRadius = radiusId == 0 ? dp(16) : res.getDimensionPixelSize(radiusId);
       Arrays.fill(radii, -1f);
+      float[] original = (float[])corners.get(bg);
+      captureNativeCorners(original[0], original[4]);
     }
 
     int dp(int dp) { return Math.round(dp * row.getResources().getDisplayMetrics().density); }
@@ -788,20 +938,11 @@ final class NotificationCards {
     }
 
     void prepare(boolean summary, boolean child) throws ReflectiveOperationException {
-      float[] src = (float[])corners.get(bg);
-      boolean hasCorners = false;
-      for (float radius : src) if (radius > 0f) { hasCorners = true; break; }
-      float top = hasCorners ? 0f : (float)topRadius.invoke(row);
-      float bottom = hasCorners ? 0f : (float)bottomRadius.invoke(row);
-      boolean changed = false;
-      for (int i = 0; i < 8; i++) {
-        float radius = scaleRadius(hasCorners ? src[i] : i < 4 ? top : bottom, innerRadius, outerRadius, dp(28));
-        if (summary) radius = dp(28);
-        if ((joined & (i < 4 ? JOIN_TOP : JOIN_BOTTOM)) != 0) radius = innerRadius;
-        if (radii[i] != radius) { radii[i] = radius; changed = true; }
+      if (!shapePrepared) {
+        long now = SystemClock.uptimeMillis();
+        cornerTransition.target(joined, now, false);
+        resolveCorners(now);
       }
-      if (changed) for (int i = 0; i < art.getNumberOfLayers(); i++)
-        if (art.getDrawable(i) instanceof GradientDrawable layer) layer.setCornerRadii(radii);
       int alpha = drawableAlpha.getInt(bg);
       // A vendor can omit its whole background layer on an otherwise visible steady-state row.
       if (child) alpha = Math.round(alpha * bg.getAlpha());
@@ -809,6 +950,151 @@ final class NotificationCards {
       if (ripple.getAlpha() != alpha) ripple.setAlpha(alpha);
       ripple.setState(row.getDrawableState());
       ripple.setLayoutDirection(bg.getLayoutDirection());
+    }
+
+    void captureNativeCorners(float top, float bottom) {
+      originalTop = top;
+      originalBottom = bottom;
+      if (nativeBlur != null) nativeBlur.nativeRadius(top, bottom);
+    }
+
+    void prepareNativeBlur() {
+      if (nativeBackgroundExtension == null || nativeBlurProxy == null) return;
+      try {
+        Object extension = nativeBackgroundExtension.get(bg);
+        if (extension == null || !nativeBlurProxy.getDeclaringClass().isInstance(extension)) return;
+        Object proxy = nativeBlurProxy.invoke(extension);
+        if (nativeBlur != null && !nativeBlur.matches(proxy)) {
+          nativeBlur.restore();
+          nativeBlur = null;
+        }
+        if (nativeBlur == null && proxy != null) nativeBlur = NotificationNativeBlurSnapshot.capture(proxy);
+        if (nativeBlur != null) nativeBlur.beforeWrite();
+      } catch (ReflectiveOperationException | RuntimeException absent) { /* Optional hardware blur. */ }
+    }
+
+    void resolveCorners(long now) throws ReflectiveOperationException {
+      boolean summary = (boolean)groupSummary.invoke(row);
+      boolean hasCorners = originalTop > 0f || originalBottom > 0f;
+      float top = hasCorners ? originalTop : (float)topRadius.invoke(row);
+      float bottom = hasCorners ? originalBottom : (float)bottomRadius.invoke(row);
+      top = summary ? dp(28) : scaleRadius(top, innerRadius, outerRadius, dp(28));
+      bottom = summary ? dp(28) : scaleRadius(bottom, innerRadius, outerRadius, dp(28));
+      top += (innerRadius - top) * cornerTransition.top(now);
+      bottom += (innerRadius - bottom) * cornerTransition.bottom(now);
+      boolean changed = !shapePrepared;
+      for (int i = 0; i < radii.length; i++) {
+        float radius = i < 4 ? top : bottom;
+        if (radii[i] != radius) { radii[i] = radius; changed = true; }
+      }
+      shapePrepared = true;
+      if (changed) {
+        for (int i = 0; i < art.getNumberOfLayers(); i++)
+          if (art.getDrawable(i) instanceof GradientDrawable layer) layer.setCornerRadii(radii);
+        row.invalidate();
+      }
+    }
+
+    void updateCorners(long now) throws ReflectiveOperationException {
+      float[] current = (float[])corners.get(bg);
+      if (!nativeCornersOwned || current[0] != appliedTop || current[4] != appliedBottom) {
+        // A direct native rebind is a new source value, never feedback from our write.
+        captureNativeCorners(current[0], current[4]);
+        nativeCornersOwned = false;
+        clearNativeClipOwnership();
+      }
+      resolveCorners(now);
+      if (!canTintBackground(row)) {
+        releaseCorners();
+        return;
+      }
+      applyNativeCorners();
+      applyOverlayCorners();
+      if (cornerTransition.isRunning(now)) {
+        row.postInvalidateOnAnimation();
+        overlayBackgrounds.invalidateOwner(row);
+      }
+    }
+
+    void applyNativeCorners() throws ReflectiveOperationException {
+      if (nativeSetRadius == null) return;
+      if (nativeCornersOwned && appliedTop == radii[0] && appliedBottom == radii[4]) return;
+      prepareNativeBlur();
+      appliedTop = radii[0];
+      appliedBottom = radii[4];
+      nativeCornersOwned = true;
+      applyingNativeCorners = true;
+      try {
+        nativeSetRadius.invoke(bg, appliedTop, appliedBottom, false);
+        if (nativeBlur != null) nativeBlur.written();
+        if (bottomRounded != null) bottomRounded.setBoolean(bg, originalBottom != 0f);
+      } finally { applyingNativeCorners = false; }
+    }
+
+    void applyOverlayCorners() {
+      List<View> current = overlayBackgrounds.targetsForOwner(row, shadeRoot);
+      for (Iterator<View> it = shapedOverlays.iterator(); it.hasNext();) {
+        View target = it.next();
+        if (!current.contains(target)) {
+          overlayCorners.restore(target);
+          it.remove();
+        }
+      }
+      for (View target : current) {
+        overlayCorners.apply(target, radii[0], radii[4]);
+        shapedOverlays.add(target);
+      }
+    }
+
+    Object[] nativeClipArguments(Object owner, float top, int left, int clipTop, float bottom, int right, int clipBottom) {
+      nativeClipOwner = owner;
+      if (nativeClipSource == null) {
+        nativeClipSource = new Object[6];
+        nativeClipOwned = new Object[6];
+      }
+      nativeClipSource[0] = top;
+      nativeClipSource[1] = nativeClipOwned[1] = left;
+      nativeClipSource[2] = nativeClipOwned[2] = clipTop;
+      nativeClipSource[3] = bottom;
+      nativeClipSource[4] = nativeClipOwned[4] = right;
+      nativeClipSource[5] = nativeClipOwned[5] = clipBottom;
+      nativeClipOwned[0] = radii[0];
+      nativeClipOwned[3] = radii[4];
+      return nativeClipOwned;
+    }
+
+    void clearNativeClipOwnership() {
+      nativeClipOwner = null;
+      nativeClipSource = nativeClipOwned = null;
+    }
+
+    void releaseCorners() {
+      for (View target : shapedOverlays) overlayCorners.restore(target);
+      shapedOverlays.clear();
+      if (!nativeCornersOwned) {
+        clearNativeClipOwnership();
+        if (nativeBlur != null) nativeBlur.restore();
+        nativeBlur = null;
+        return;
+      }
+      nativeCornersOwned = false;
+      applyingNativeCorners = true;
+      try {
+        float[] current = (float[])corners.get(bg);
+        if (current[0] == appliedTop && current[4] == appliedBottom) {
+          if (nativeSetRadius != null) nativeSetRadius.invoke(bg, originalTop, originalBottom, false);
+          if (nativeSyncClip != null && nativeClipOwner != null && nativeClipSource != null
+              && (nativeClipBackground == null || nativeClipBackground.invoke(nativeClipOwner) == bg))
+            nativeSyncClip.invoke(nativeClipOwner, nativeClipSource);
+        }
+      } catch (ReflectiveOperationException | RuntimeException unavailable) {
+        problem = unavailable.toString();
+      } finally {
+        if (nativeBlur != null) nativeBlur.restore();
+        nativeBlur = null;
+        clearNativeClipOwnership();
+        applyingNativeCorners = false;
+      }
     }
 
     void update(View contracted, View expanded, int fill) {

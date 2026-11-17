@@ -10,11 +10,16 @@ final class CombinedQs {
   private final PanelRuntime runtime;
   final CombinedQsExpansion expansion = new CombinedQsExpansion();
   final ShadeLayout layout;
+  final CombinedEditorTiles editor;
   // Events can precede Application.onCreate's return, when translated resources are unavailable.
   volatile int status = R.string.combined_unavailable;
   volatile String error;
 
-  CombinedQs(PanelRuntime runtime) { this.runtime = runtime; layout = new ShadeLayout(runtime); }
+  CombinedQs(PanelRuntime runtime) {
+    this.runtime = runtime;
+    layout = new ShadeLayout(runtime);
+    editor = new CombinedEditorTiles(runtime);
+  }
 
   void install() throws Exception {
     Class<?> host = runtime.type("com.oplus.systemui.statusbar.phone.OplusCentralSurfacesExImpl");

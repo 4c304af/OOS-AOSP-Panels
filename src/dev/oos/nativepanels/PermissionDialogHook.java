@@ -8,6 +8,8 @@ import android.view.View;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Restores the Google controller's own grant UI, leaving all permission decisions untouched. */
 final class PermissionDialogHook {
@@ -17,6 +19,8 @@ final class PermissionDialogHook {
   private final ClassLoader loader;
   private final PermissionDialogInflation inflation = new PermissionDialogInflation();
   private final PermissionDialogResources resources = new PermissionDialogResources();
+  private final PermissionDialogSettings.Reporter diagnostics = new PermissionDialogSettings.Reporter();
+  private final Set<String> warnings = ConcurrentHashMap.newKeySet();
 
   PermissionDialogHook(ModuleEntry module, ClassLoader loader) {
     this.module = module;
@@ -39,7 +43,7 @@ final class PermissionDialogHook {
           LayoutInflater original = (LayoutInflater)c.proceed();
           try { return inflation.select((Context)c.getArg(0), original); }
           catch (RuntimeException failure) {
-            module.log(Log.WARN, "OOSNativePanels", "Permission inflater kept original context", failure);
+            warnOnce("inflater", "Permission inflater kept original context", failure);
             return original;
           }
         });
@@ -50,15 +54,12 @@ final class PermissionDialogHook {
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
           Activity activity = (Activity)activityField.get(c.getThisObject());
           if (!activityType.isInstance(activity)) return c.proceed();
-          if (!PermissionDialogSettings.readEnabled(activity)) {
-            PermissionDialogSettings.report(activity, "Grant UI: original (switch off or settings unavailable)");
-            return c.proceed();
-          }
+          if (!PermissionDialogSettings.readEnabled(activity)) return c.proceed();
           Context presentation;
           try { presentation = resources.create(activity); }
           catch (RuntimeException | java.io.IOException failure) {
-            module.log(Log.WARN, "OOSNativePanels", "Permission UI kept original resources", failure);
-            PermissionDialogSettings.report(activity, "Grant UI: original\n" + failure);
+            warnOnce("resources", "Permission UI kept original resources", failure);
+            diagnostics.report(activity, "Grant UI: original\n" + failure);
             return c.proceed();
           }
           // The unmodified handler chooses its layout and binds the original result
@@ -70,13 +71,17 @@ final class PermissionDialogHook {
             try { background = PermissionDialogColors.apply((View)view); }
             catch (RuntimeException failure) {
               // A cosmetic failure must not rerun the handler or interrupt its permission request.
-              module.log(Log.WARN, "OOSNativePanels", "Permission dialog kept original background", failure);
+              warnOnce("background", "Permission dialog kept original background", failure);
             }
           }
-          PermissionDialogSettings.report(activity, "Package: " + activity.getPackageName()
+          diagnostics.report(activity, "Package: " + activity.getPackageName()
               + "\nGrant UI: " + (applied ? "native APK resources" : "original (inflater not reached)")
               + "\nDialog background: " + (background != null ? background : "unchanged"));
           return view;
         });
+  }
+
+  private void warnOnce(String part, String message, Throwable failure) {
+    if (warnings.add(part)) module.log(Log.WARN, "OOSNativePanels", message, failure);
   }
 }

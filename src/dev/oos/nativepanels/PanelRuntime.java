@@ -457,7 +457,8 @@ final class PanelRuntime {
         + new Event(R.string.status_hooks, wifiHook, detailsHook, mediaHook, navigationHook, carrierHook,
             modesHook, channelsHook, flashlightHook, privacyHook, detailsHook && users.ready).format(res) + "\n"
         + res.getString(R.string.combined_qs) + " · " + res.getString(combinedQs.status) + "\n"
-        + (combinedQs.status == R.string.combined_selected ? combinedQs.expansion.report() + combinedQs.layout.report() + "\n" : "")
+        + (combinedQs.status == R.string.combined_selected ? combinedQs.expansion.report()
+            + combinedQs.layout.report() + "\n" + combinedQs.editor.report() + "\n" : "")
         + homeBattery.report() + "\n"
         + (combinedQs.error == null ? "" : combinedQs.error + "\n")
         + res.getString(R.string.last_result, last.format(res)) + "\n\n" + log;

@@ -22,14 +22,27 @@ final class PermissionDialogSettings {
     }
   }
 
-  static void report(Context caller, String text) {
-    if (text == null || text.isEmpty()) return;
+  static boolean report(Context caller, String text) {
+    if (text == null || text.isEmpty()) return false;
     Bundle data = new Bundle();
     data.putString("report", text.substring(0, Math.min(text.length(), MAX_REPORT_LENGTH)));
     try {
-      caller.getContentResolver().call(URI, REPORT, null, data);
+      return caller.getContentResolver().call(URI, REPORT, null, data) != null;
     } catch (RuntimeException unavailable) {
       // Reporting must never interrupt an app's permission request.
+      return false;
+    }
+  }
+
+  /** Keep one changed outcome per controller process, rather than reporting every dialog. */
+  static final class Reporter {
+    private String lastReport;
+
+    synchronized void report(Context caller, String text) {
+      if (text == null || text.isEmpty()) return;
+      String bounded = text.substring(0, Math.min(text.length(), MAX_REPORT_LENGTH));
+      if (!bounded.equals(lastReport) && PermissionDialogSettings.report(caller, bounded))
+        lastReport = bounded;
     }
   }
 
@@ -42,7 +55,8 @@ final class PermissionDialogSettings {
     if (text == null || text.isEmpty()) return;
     String bounded = text.substring(0, Math.min(text.length(), MAX_REPORT_LENGTH));
     SharedPreferences saved = diagnostics(context);
-    saved.edit().putString("text", bounded).putLong("time", System.currentTimeMillis()).apply();
+    if (!bounded.equals(saved.getString("text", null)))
+      saved.edit().putString("text", bounded).putLong("time", System.currentTimeMillis()).apply();
   }
 
   static String diagnostic(Context module) {

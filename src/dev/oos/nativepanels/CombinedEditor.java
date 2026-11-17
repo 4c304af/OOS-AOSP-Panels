@@ -33,5 +33,9 @@ final class CombinedEditor {
         }
       } catch (ClassNotFoundException ignored) { }
     }
+    try { r.combinedQs.editor.install(); }
+    catch (ReflectiveOperationException | RuntimeException unavailable) {
+      r.module.log(android.util.Log.WARN, "OOSNativePanels", "Native editor tile metadata", unavailable);
+    }
   }
 }

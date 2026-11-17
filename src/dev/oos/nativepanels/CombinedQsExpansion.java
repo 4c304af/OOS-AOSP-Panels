@@ -1,7 +1,6 @@
 package dev.oos.nativepanels;
 
 import android.app.Fragment;
-import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 import io.github.libxposed.api.XposedInterface;
@@ -18,8 +17,6 @@ final class CombinedQsExpansion {
   private Object shadeController;
   private Field height, ambient;
   private Method appear;
-  private boolean sampledThisPull;
-  private int sampleAttempts;
 
   static float parallax(float proposed, float height, float appear) {
     if (!Float.isFinite(appear) || !Float.isFinite(height) || height <= 0f || !(proposed < 0f)) return proposed;
@@ -35,33 +32,14 @@ final class CombinedQsExpansion {
       return parallax(proposed, height.getFloat(shadeController), (Float) appear.invoke(ambient.get(shadeController)));
     } catch (ReflectiveOperationException ignored) { return proposed; }
   }
-  private boolean lastExpanded;
-
   float gridFraction(float qs, float shade) {
     return closingUpdate ? CombinedSettingsLaunch.closingExpansion(qs, shade) : qs;
   }
-  private int lastLockState = -1;
-  private float lastLockDrag;
-  private boolean lastLockVisible, lastLockEnabled, lastLockOpen;
-  private float maxFraction;
-  private long nextSample;
-  private View pending;
-  private long sampleGeneration;
-  private String lastOpen = "";
   private String bridgeError = "";
 
   void reset() {
     current.clear();
-    sampleGeneration++;
-    pending = null;
-    lastExpanded = false;
-    sampledThisPull = false;
-    sampleAttempts = 0;
-    lastLockState = -1;
-    maxFraction = 0;
-    lastOpen = "";
     bridgeError = "";
-    nextSample = 0;
   }
 
   void install(PanelRuntime runtime, Class<?> compose) throws Exception {
@@ -115,7 +93,6 @@ final class CombinedQsExpansion {
               runtime.combinedQs.layout.notificationScrim.bind(host, split != null && split.getBoolean(host));
               float fraction = shadeFraction.getFloat(host);
               runtime.combinedQs.layout.shadeExpansion = fraction;
-              if (Float.isFinite(fraction)) maxFraction = Math.max(maxFraction, fraction);
               int state = bar.getInt(host);
               boolean lockedShade = state == KEYGUARD || state == SHADE_LOCKED;
               boolean asleep = dozing.getBoolean(host);
@@ -129,27 +106,11 @@ final class CombinedQsExpansion {
                 enabled = expansionEnabled != null && (Boolean) expansionEnabled.invoke(host);
               }
               boolean expanded = isOpen(progress, state, asleep, visible, enabled);
-              if (lockedShade && !asleep && progress > 0f) {
-                lastLockState = state;
-                lastLockDrag = progress;
-                lastLockVisible = visible;
-                lastLockEnabled = enabled;
-                lastLockOpen = expanded;
-              }
               // OOS also writes this flag outside updateExpansion. Its native setter uses
               // structurally equal snapshot state, so writing the current value is a no-op.
               setPanelExpanded.invoke(fragment, expanded);
-              if (!expanded && lastExpanded) {
-                sampledThisPull = false;
-                sampleAttempts = 0;
-                pending = null;
-                nextSample = 0;
-                sampleGeneration++;
-              }
-              lastExpanded = expanded;
               if (expanded && header != null) runtime.combinedQs.layout.bindHeader(fragment, header.get(host));
               runtime.combinedQs.layout.setOpen(fragment, expanded, lockedShade || asleep);
-              if (expanded && !sampledThisPull && sampleAttempts < 3 && progress >= .95f) sampleWhenLaidOut(fragment);
             }
           } catch (Throwable e) {
             if (bridgeError.isEmpty()) bridgeError = android.util.Log.getStackTraceString(e);
@@ -168,37 +129,11 @@ final class CombinedQsExpansion {
     return state == SHADE || ((state == KEYGUARD || state == SHADE_LOCKED) && visible && enabled);
   }
 
-  private void sampleWhenLaidOut(Fragment fragment) {
-    View view = fragment.getView();
-    long now = SystemClock.uptimeMillis();
-    if (view == null || !view.isAttachedToWindow() || pending == view || now < nextSample) return;
-    pending = view;
-    sampleAttempts++;
-    nextSample = now + 450;
-    long generation = sampleGeneration;
-    view.postDelayed(() -> {
-      if (generation != sampleGeneration || pending != view) return;
-      pending = null;
-      if (current.get() == fragment && lastExpanded && view.isAttachedToWindow()) {
-        try {
-          Object vm = Reflect.get(fragment, "viewModel");
-          if ((Float) Reflect.call(vm, "getPanelExpansionFraction") >= .95f
-              && (Float) Reflect.call(vm, "getViewAlpha") >= .95f) {
-            lastOpen = describe(fragment);
-            sampledThisPull = true;
-          }
-        } catch (Throwable e) { if (bridgeError.isEmpty()) bridgeError = android.util.Log.getStackTraceString(e); }
-      }
-    }, 120);
-  }
-
   String report() {
     Fragment fragment = current.get();
     String live = fragment == null ? "no controller update" : describe(fragment);
-    return "QS now: " + live + " maxShade=" + maxFraction + "\nQS last open: " + (lastOpen.isEmpty() ? "—" : lastOpen)
-        + "\n" + (lastLockState == -1 ? "" : "QS last lock pull: bar=" + lastLockState
-            + " drag=" + lastLockDrag + " hostVisible=" + lastLockVisible + " expansionEnabled=" + lastLockEnabled
-            + " open=" + lastLockOpen + "\n") + (bridgeError.isEmpty() ? "" : bridgeError + "\n");
+    // Reflective snapshots are collected only when a diagnostic report is requested.
+    return "QS now: " + live + "\n" + (bridgeError.isEmpty() ? "" : bridgeError + "\n");
   }
 
   private static String describe(Fragment fragment) {
