@@ -35,6 +35,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
   private final View icon, oldStyle;
   private final ChargingIndicator chargingIndicator;
   private final ShadeBattery battery;
+  private final BatteryAccessibility accessibility;
   private final float bodyWidth, bodyHeight, capWidth;
   private final Space attributionSpace;
   private int extraWidth;
@@ -97,6 +98,8 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
     attributionSpace.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
     battery = new ShadeBattery(r, ctx, Color.WHITE, 1f);
     battery.view.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+    accessibility = new BatteryAccessibility(original,
+        description -> ready ? battery.completedDescription(description) : description);
     battery.view.setPivotX(0);
     battery.view.setPivotY(0);
     // Composite the AOSP fill and track before applying the status icon's alpha.
@@ -111,6 +114,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
 
   @Override protected void onAttachedToWindow() {
     super.onAttachedToWindow();
+    accessibility.attach();
     r.homeBattery.observeNeighbour(this, bar, keyguard);
     getViewTreeObserver().addOnPreDrawListener(this);
     // The keyguard meter receives wallpaper-aware tint from its own icon pipeline.
@@ -128,6 +132,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
   }
 
   @Override protected void onDetachedFromWindow() {
+    accessibility.detach();
     r.homeBattery.forgetNeighbour(this);
     removeCallbacks(applyGap);
     removeCallbacks(checkIcons);

@@ -9,7 +9,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -19,10 +18,13 @@ final class CombinedMedia {
   private final PanelRuntime runtime;
   private final ShadeLayout layout;
   private final Handler main = new Handler(Looper.getMainLooper());
-  private final Map<Object, Object> supplied = new HashMap<>();
-  private Object model, filter, repository, published;
+  private final MediaEntryBridge entries = new MediaEntryBridge();
+  private Object model, filter, listener, published;
+  private volatile Object repository;
   private Field userEntries;
-  private Method getState, setState, getEntries, getValue, getId, hasActive, hasAny, isSwipedAway, add, remove;
+  private Class<?> listenerType;
+  private Method getState, setState, getEntries, getValue, getId, getToken, isPlaying,
+      hasActive, hasAny, isSwipedAway, add, remove, addListener, removeListener;
   private boolean installed, rendered;
   private record Feed(Object repository, Object interactor) {}
 
@@ -40,6 +42,12 @@ final class CombinedMedia {
   }
   private boolean listening;
   private final Runnable refresh = this::refresh;
+  private final MediaEntryBridge.Store store = new MediaEntryBridge.Store() {
+    public Map<?, ?> entries() throws Exception { return (Map<?, ?>)getValue.invoke(getEntries.invoke(repository)); }
+    public boolean dismissed() throws Exception { return (Boolean)isSwipedAway.invoke(repository); }
+    public void add(Object data) throws Exception { add.invoke(repository, data); }
+    public void remove(Object id, Object data) throws Exception { remove.invoke(repository, id, data); }
+  };
 
   CombinedMedia(PanelRuntime runtime, ShadeLayout layout) { this.runtime = runtime; this.layout = layout; }
 
@@ -70,6 +78,8 @@ final class CombinedMedia {
     isSwipedAway = repo.getMethod("isSwipedAway");
     getEntries = repo.getMethod("getCurrentUserEntries");
     getId = data.getMethod("getInstanceId");
+    getToken = data.getMethod("getToken");
+    isPlaying = data.getMethod("isPlaying");
     Class<?> interactor = runtime.type(MEDIA + "remedia.domain.interactor.MediaInteractor");
     hasActive = interactor.getMethod("getHasActiveMedia");
     hasAny = interactor.getMethod("getHasAnyMedia");
@@ -167,21 +177,18 @@ final class CombinedMedia {
         .getDeclaredMethod("invoke")); } catch (ReflectiveOperationException e) { layout.warn(e); }
     try { installTransportGlyph(renderer, composer); }
     catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
+    try { new MediaCarouselCorners(layout::hapticOwner).install(runtime, layout, renderer, composer); }
+    catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
+    try { new MediaMetadataText(() -> repository).install(runtime); }
+    catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
     // Some builds already feed the Compose repository. Only bridge legacy-filter
     // entries on builds which actually select LegacyMediaDataManagerImpl.
     try {
       Class<?> legacyFilter = runtime.type(MEDIA + "controls.domain.pipeline.LegacyMediaDataFilterImpl");
       userEntries = Reflect.field(legacyFilter, "userEntries");
-      for (Method m : legacyFilter.getDeclaredMethods()) {
-        String name = m.getName();
-        if (!(name.equals("onMediaDataLoaded") || name.equals("onMediaDataRemoved")
-            || name.startsWith("handleUserSwitched$") || name.startsWith("handleProfileChanged$"))) continue;
-        runtime.module.hook(m).setId("native-panels:media-filter-" + name).intercept(c -> {
-          Object result = c.proceed();
-          if (c.getThisObject() == filter) { main.removeCallbacks(refresh); main.post(refresh); }
-          return result;
-        });
-      }
+      listenerType = runtime.type(MEDIA + "controls.domain.pipeline.MediaDataManager$Listener");
+      addListener = legacyFilter.getMethod("addListener", listenerType);
+      removeListener = legacyFilter.getMethod("removeListener", listenerType);
     } catch (ReflectiveOperationException e) { layout.warn(e); }
     installed = true;
   }
@@ -274,11 +281,32 @@ final class CombinedMedia {
       repository = runtime.provider("providesMediaRepositoryProvider");
       Object manager = runtime.provider("providesMediaDataManagerProvider");
       Field source = Reflect.optionalField(manager.getClass(), "mediaDataFilter");
-      if (source != null && userEntries != null) {
+      if (source != null && userEntries != null && addListener != null && removeListener != null) {
         Object candidate = source.get(manager);
         if (userEntries.getDeclaringClass().isInstance(candidate)) filter = candidate;
       }
       listening = true;
+      if (filter != null) {
+        // Register after bootstrapping: addListener synchronously publishes OOS's
+        // current accepted entry, and subsequent callbacks include final filtering.
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>)userEntries.get(filter)).entrySet()) {
+          entries.loaded(entry.getKey(), null, mediaEntry(entry.getValue()));
+        }
+        listener = Proxy.newProxyInstance(runtime.loader, new Class<?>[]{listenerType}, (proxy, method, args) ->
+            switch (method.getName()) {
+              case "equals" -> proxy == args[0];
+              case "hashCode" -> System.identityHashCode(proxy);
+              case "toString" -> "Native panels media listener";
+              case "onMediaDataLoaded", "onMediaDataRemoved" -> {
+                Object[] event = args.clone();
+                if (Looper.myLooper() == main.getLooper()) sourceChanged(proxy, method.getName(), event);
+                else main.post(() -> sourceChanged(proxy, method.getName(), event));
+                yield null;
+              }
+              default -> null;
+            });
+        addListener.invoke(filter, listener);
+      }
       refresh();
       setState.invoke(published, new Feed(repository, runtime.provider("providesMediaInteractorProvider")));
     } catch (Throwable e) { stop(); layout.warn(e); }
@@ -286,27 +314,23 @@ final class CombinedMedia {
 
   private void refresh() {
     if (!listening || filter == null) return;
+    try { entries.refresh(store); }
+    catch (Exception e) { layout.warn(e); }
+  }
+
+  private MediaEntryBridge.Entry mediaEntry(Object data) throws ReflectiveOperationException {
+    return new MediaEntryBridge.Entry(data, getId.invoke(data), getToken.invoke(data),
+        Boolean.TRUE.equals(isPlaying.invoke(data)));
+  }
+
+  private void sourceChanged(Object owner, String event, Object[] args) {
+    if (!listening || listener != owner) return;
     try {
-      Map<?,?> current = (Map<?,?>)userEntries.get(filter);
-      Map<Object,Object> desired = new HashMap<>();
-      for (Object data : current.values()) {
-        desired.put(getId.invoke(data), data);
-      }
-      for (Object id : new java.util.ArrayList<>(supplied.keySet())) {
-        if (!desired.containsKey(id)) remove.invoke(repository, id, supplied.remove(id));
-      }
-      Map<?,?> existing = (Map<?,?>)getValue.invoke(getEntries.invoke(repository));
-      for (Map.Entry<Object,Object> e : desired.entrySet()) {
-        Object id = e.getKey(), data = e.getValue(), previous = supplied.get(id);
-        Object nativeEntry = existing.get(id);
-        if (nativeEntry == data) continue;
-        // A legacy refresh may still list the exact entry just removed by the native swipe.
-        if (nativeEntry == null && previous == data && (Boolean)isSwipedAway.invoke(repository)) continue;
-        if (!canSupply(nativeEntry, previous)) { supplied.remove(id); continue; }
-        add.invoke(repository, data);
-        supplied.put(id, data);
-      }
-    } catch (Exception e) { layout.warn(e); }
+      if (event.equals("onMediaDataLoaded")) entries.loaded(args[0], args[1], mediaEntry(args[2]));
+      else entries.removed(args[0]);
+      main.removeCallbacks(refresh);
+      main.post(refresh);
+    } catch (ReflectiveOperationException e) { layout.warn(e); }
   }
 
   static boolean canSupply(Object current, Object previous) {
@@ -320,17 +344,19 @@ final class CombinedMedia {
   void stop() {
     main.removeCallbacks(refresh);
     listening = false;
+    Object oldListener = listener;
+    listener = null;
+    if (oldListener != null && filter != null) {
+      try { removeListener.invoke(filter, oldListener); }
+      catch (ReflectiveOperationException e) { layout.warn(e); }
+    }
     filter = null;
     if (published != null) {
-      try {
-        setState.invoke(published, (Object)null);
-        for (Map.Entry<Object,Object> e : supplied.entrySet()) {
-          try { remove.invoke(repository, e.getKey(), e.getValue()); }
-          catch (ReflectiveOperationException err) { layout.warn(err); }
-        }
-      } catch (Exception e) { layout.warn(e); }
+      try { setState.invoke(published, (Object)null); }
+      catch (Exception e) { layout.warn(e); }
     }
-    supplied.clear();
+    try { entries.clear(repository == null ? null : store); }
+    catch (Exception e) { layout.warn(e); }
     repository = null;
   }
 
@@ -339,7 +365,7 @@ final class CombinedMedia {
     if (installed) {
       try { state = scenes().name(); } catch (ReflectiveOperationException ignored) {}
     }
-    return "QS media: listening=" + listening + " bridged=" + supplied.size()
+    return "QS media: listening=" + listening + " bridged=" + entries.size()
         + " nativeRendered=" + rendered + " scenes=" + state;
   }
 }

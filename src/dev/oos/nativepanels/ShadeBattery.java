@@ -14,13 +14,15 @@ final class ShadeBattery {
   private final PanelRuntime r;
   final View view;
   private final Context context;
-  private final Object tintState, percentState, modifier, localDensity, unit;
+  private final Object tintState, percentState, chargedState, modifier, localDensity, unit;
   private final Method get, set, remember, consume, toDp, height, batteryHeight, layout, description;
   private final Method level, full, glyphs, attribution, profile, contentDescription, dark, light;
   private final Method toArgb, pack;
   private final Constructor<?> modelConstructor;
   private final Object interactor, companion, create, levelSource, fullSource, glyphSource, colorSource;
   private final Object normalDark, normalLight;
+  private final Object chargingGlyph;
+  private final BatteryChargeState chargeState;
   private Object model;
   private final java.util.Map<Class<?>, Object> themedPalettes = new java.util.HashMap<>();
 
@@ -56,6 +58,11 @@ final class ShadeBattery {
     set = r.type("androidx.compose.runtime.MutableState").getMethod("setValue", Object.class);
     tintState = state.invoke(null, tint);
     percentState = state.invoke(null, true);
+    chargedState = state.invoke(null, false);
+    chargeState = new BatteryChargeState(view, charged -> {
+      try { set.invoke(chargedState, charged); }
+      catch (ReflectiveOperationException | RuntimeException unavailable) { /* Keep native presentation. */ }
+    });
 
     Class<?> vm = r.type(PIPELINE + "ui.viewmodel.BatteryViewModel");
     Class<?> domain = r.type(PIPELINE + "domain.interactor.BatteryInteractor");
@@ -76,6 +83,7 @@ final class ShadeBattery {
     String colors = PIPELINE + "shared.ui.BatteryColors";
     normalDark = r.type(colors + "$DarkTheme$Default").getField("INSTANCE").get(null);
     normalLight = r.type(colors + "$LightTheme$Default").getField("INSTANCE").get(null);
+    chargingGlyph = r.type(PIPELINE + "shared.ui.BatteryGlyph$Bolt").getField("INSTANCE").get(null);
     Class<?> composeColor = r.type("androidx.compose.ui.graphics.ColorKt");
     pack = composeColor.getMethod("Color", int.class);
     toArgb = composeColor.getMethod("toArgb-8_81llA", long.class);
@@ -89,7 +97,10 @@ final class ShadeBattery {
     glyphSource = function(zero, args -> (boolean)get.invoke(percentState) ? glyphs.invoke(model) : Collections.emptyList());
     colorSource = function(zero, args -> {
       int foreground = (int)get.invoke(tintState);
-      Object nativeColors = (CombinedStatusIcons.darkIntensity(foreground) == 0f ? dark : light).invoke(profile.invoke(model));
+      boolean darkTheme = CombinedStatusIcons.darkIntensity(foreground) == 0f;
+      Object nativeColors = completedCharging()
+          ? (darkTheme ? normalDark : normalLight)
+          : (darkTheme ? dark : light).invoke(profile.invoke(model));
       return themedPalettes.getOrDefault(nativeColors.getClass(), nativeColors);
     });
 
@@ -116,8 +127,42 @@ final class ShadeBattery {
     float dp = (float)toDp.invoke(consume.invoke(composer, localDensity), batteryHeight.invoke(companion, context));
     Object sized = height.invoke(null, modifier, dp * sizeFactor);
     String label = (String)description.invoke(null, contentDescription.invoke(model), composer, 0);
-    Reflect.invoke(layout, null, attribution.invoke(model), levelSource, fullSource, glyphSource, colorSource,
+    boolean completed = completedCharging();
+    if (completed) label = completedDescription(context, (Integer)level.invoke(model), label);
+    Reflect.invoke(layout, null, completed ? null : attribution.invoke(model), levelSource, fullSource, glyphSource, colorSource,
         sized, label == null ? "" : label, composer, 0, 0);
+  }
+
+  private boolean completedCharging() throws ReflectiveOperationException {
+    // The ROM's isFull means level >= 100; its isCharging means plugged in.
+    // Only the real FULL status removes the charging glyph and green palette.
+    // Defender, battery saver and unknown-state attributions retain native priority.
+    return completedCharging((boolean)get.invoke(chargedState), attribution.invoke(model), chargingGlyph);
+  }
+
+  static boolean completedCharging(boolean full, Object nativeAttribution, Object chargingGlyph) {
+    return full && nativeAttribution != null && nativeAttribution == chargingGlyph;
+  }
+
+  CharSequence completedDescription(CharSequence fallback) {
+    if (model == null) return fallback;
+    try {
+      return completedCharging()
+          ? completedDescription(context, (Integer)level.invoke(model), fallback == null ? null : fallback.toString())
+          : fallback;
+    } catch (ReflectiveOperationException | RuntimeException unavailable) {
+      return fallback;
+    }
+  }
+
+  static String completedDescription(Context context, Integer level, String fallback) {
+    android.content.res.Resources resources = context.getResources();
+    int fullId = resources.getIdentifier("keyguard_charge_full", "string", Protocol.TARGET);
+    int levelId = resources.getIdentifier("accessibility_battery_level", "string", Protocol.TARGET);
+    String fullText = fullId == 0 ? "" : resources.getString(fullId);
+    String levelText = levelId == 0 || level == null ? "" : resources.getString(levelId, level);
+    if (!levelText.isEmpty() && !fullText.isEmpty()) return levelText + " " + fullText;
+    return !levelText.isEmpty() ? levelText : !fullText.isEmpty() ? fullText : fallback;
   }
 
   private void makePalette(Class<?> type, Object nativeColors) {
