@@ -145,6 +145,8 @@
     <string name="saved_diagnostics">Last saved report · %1$s</string>
     <string name="home_battery">AOSP battery icon</string>
     <string name="home_battery_desc">Show the AOSP battery icon in the status bar, including on the lock screen. Restart System UI to apply.</string>
+    <string name="android_17_status_bar">Android 17 status bar</string>
+    <string name="android_17_status_bar_desc">Use Android 17 styling for the status bar and the header in AOSP Quick Settings. Restart System UI to apply.</string>
     <string name="notification_cards">AOSP notification cards</string>
     <string name="notification_cards_desc">Use the AOSP background, corners and spacing for standard notifications in the combined shade.</string>
     <string name="mobile_order">Network type before signal bars</string>

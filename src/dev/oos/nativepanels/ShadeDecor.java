@@ -85,6 +85,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   private final LinearLayout header;
   private final TextClock clock, date;
   private final TextView battery;
+  private final boolean aospStatusBar;
   record ButtonColors(int activeBackground, int activeIcon, int inactiveBackground, int inactiveIcon) {}
   private final java.util.Map<ImageButton, ButtonColors> buttons = new java.util.WeakHashMap<>();
   private ButtonColors fallbackColors;
@@ -122,6 +123,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     this.layout = layout;
     this.runtime = runtime;
     context = frame.getContext();
+    aospStatusBar = runtime != null && runtime.statusBar.enabled(context);
     orientation = context.getResources().getConfiguration().orientation;
     panelPaddingTop = id("qs_panel_padding_top", "dimen");
     selectedRadius = buttonRadius("common_tile_default_active_icon_corner_radius", 16);
@@ -137,6 +139,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       @Override protected void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config);
         checkOrientation();
+        if (aospStatusBar) refreshInsets = true;
         if (statusIcons != null) statusIcons.updateChipSpacing();
       }
     };
@@ -148,7 +151,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     expandedClock.setIncludeFontPadding(false);
     expandedClock.setVisibility(View.INVISIBLE);
     int scaleId = id("qqs_expand_clock_scale", "dimen");
-    if (scaleId != 0) {
+    if (!aospStatusBar && scaleId != 0) {
       android.util.TypedValue scale = new android.util.TypedValue();
       context.getResources().getValue(scaleId, scale, true);
       if (scale.type == android.util.TypedValue.TYPE_FLOAT && scale.getFloat() >= 1f) clockScale = scale.getFloat();
@@ -239,7 +242,13 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
 
   int expandedHeight() {
     if (splitLayout()) return headerHeight();
-    return headerHeight() + Math.max(dp(44), expandedClock.getLineHeight() + dp(6));
+    if (!aospStatusBar) return headerHeight() + expandedClockHeight();
+    // Android 17 bottom-aligns the 48 dp clock and the date row in a 120 dp header.
+    return Math.max(dp(120), headerHeight() + expandedClockHeight() + dp(16));
+  }
+
+  private int expandedClockHeight() {
+    return Math.max(dp(aospStatusBar ? 48 : 44), expandedClock.getLineHeight() + dp(6));
   }
 
   void expansion(float value) {
@@ -357,7 +366,13 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     expandedClock.setPivotY(expandedClock.getHeight() / 2f);
     expandedClock.setScaleX(scale);
     expandedClock.setScaleY(scale);
-    expandedClock.setTranslationY(top);
+    float clockTop = top;
+    if (aospStatusBar && p > 0f) {
+      float collapsedTop = top + (headerHeight() - top - expandedClockHeight()) / 2f;
+      float expandedTop = top + extra - expandedClockHeight() - dp(16);
+      clockTop = collapsedTop + (expandedTop - collapsedTop) * p;
+    }
+    expandedClock.setTranslationY(clockTop);
   }
 
   void install() {
@@ -367,7 +382,8 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     top = status == 0 ? 0 : context.getResources().getDimensionPixelSize(status);
     header.setPadding(dp(16), top, dp(16), 0);
     header.setLayoutParams(new FrameLayout.LayoutParams(-1, headerHeight(), Gravity.TOP));
-    FrameLayout.LayoutParams big = new FrameLayout.LayoutParams(-2, expandedHeight() - headerHeight(), Gravity.TOP | Gravity.START);
+    FrameLayout.LayoutParams big = new FrameLayout.LayoutParams(-2,
+        aospStatusBar ? expandedClockHeight() : expandedHeight() - headerHeight(), Gravity.TOP | Gravity.START);
     big.setMarginStart(dp(16));
     expandedClock.setLayoutParams(big);
     frame.addOnAttachStateChangeListener(this);
@@ -705,7 +721,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         header.setLayoutParams(params);
         FrameLayout.LayoutParams big = (FrameLayout.LayoutParams) expandedClock.getLayoutParams();
         big.setMarginStart(dp(16) + (frame.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? r : l));
-        big.height = expandedHeight() - headerHeight();
+        big.height = aospStatusBar ? expandedClockHeight() : expandedHeight() - headerHeight();
         expandedClock.setLayoutParams(big);
         updateHostHeight();
         layout.measuredHeader(headerHeight(), expandedHeight());

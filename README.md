@@ -2,7 +2,21 @@
 
 這個 LSPosed 模組為 ColorOS 17 國際版的系統介面加入 AOSP 快速設定、通知面板與狀態列元件。
 
-[下載 APK（GitHub Releases）](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
+[上游版本（GitHub Releases）](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
+
+## Android 17 原生狀態欄
+
+在支援 Modern Xposed API 102 的 LSPosed／Vector 中啟用本模組，將 `com.android.systemui` 加入作用域。在模組首頁開啟 **Android 17 原生狀態欄**，再重啟系統介面。
+
+- 收合狀態欄套用 Android 17 的時鐘字型、Wi‑Fi 和單卡訊號圖案，以及本專案的 AOSP 電池元件。鎖定畫面也會套用 AOSP 電池。
+- 展開控制中心時，在 ColorOS 選擇合併模式，並開啟模組的 **AOSP 快速設定**。頁首會使用同一套訊號圖案與電池，並依照 Android 17 的頁首尺寸與間距呈現大時鐘、日期和狀態圖示。
+- 雙卡堆疊訊號沿用 ColorOS 的繪製路徑。ColorOS 分離模式的獨立控制中心沿用系統版面。
+
+已對照 PLK110 `17.0.0.105(CN01)` 的 SystemUI APK 檢查接入點。實際顯示、動畫以及其他固件版本仍需實機驗證。測試 APK 使用調試簽名，若已裝有不同簽名的上游 APK，需要先卸載原 APK，再安裝並重新選擇作用域。
+
+使用 JDK 17 和 Android SDK 36 執行 `./gradlew assembleDebug`（Windows 為 `gradlew.bat assembleDebug`）。APK 輸出至 `build/outputs/apk/debug/`。
+
+展開頁首的尺寸參考 [AOSP Android 17.0.0_r1 的 ShadeHeader](https://github.com/aosp-mirror/platform_frameworks_base/blob/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/ShadeHeader.kt#L285)。
 
 ## 參考專案
 

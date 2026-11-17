@@ -145,6 +145,8 @@
     <string name="saved_diagnostics">上次儲存的診斷記錄（%1$s）</string>
     <string name="home_battery">AOSP 電池圖示</string>
     <string name="home_battery_desc">在狀態欄和鎖定畫面的狀態欄使用 AOSP 電池圖示。更改後請重啟系統介面。</string>
+    <string name="android_17_status_bar">Android 17 原生狀態欄</string>
+    <string name="android_17_status_bar_desc">為一般狀態欄與 AOSP 快速設定頁首套用 Android 17 樣式。更改後請重啟系統介面。</string>
     <string name="notification_cards">AOSP 通知卡片</string>
     <string name="notification_cards_desc">在合併模式下，為一般通知使用 AOSP 的背景、圓角和間距。</string>
     <string name="mobile_order">將網路制式放在訊號條前</string>

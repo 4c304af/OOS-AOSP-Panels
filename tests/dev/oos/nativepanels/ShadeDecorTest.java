@@ -227,4 +227,33 @@ public class ShadeDecorTest {
     decor.dispose();
     assertEquals(0, frame.getChildCount());
   }
+
+  @Test public void android17ExpandedHeaderReservesTheGapBelowTheLargeClock() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    ShadeDecor decor = new ShadeDecor(new FrameLayout(context), null, null);
+    var style = ShadeDecor.class.getDeclaredField("aospStatusBar");
+    style.setAccessible(true);
+    style.setBoolean(decor, true);
+    decor.install();
+    FrameLayout host = decor.createHeaderHost(context);
+    TextClock expandedClock = (TextClock) host.getChildAt(1);
+    LinearLayout statusRow = (LinearLayout) host.getChildAt(0);
+    var position = ShadeDecor.class.getDeclaredMethod("positionHeader", boolean.class);
+    position.setAccessible(true);
+    decor.expansion(1f);
+    position.invoke(decor, true);
+
+    float density = context.getResources().getDisplayMetrics().density;
+    assertTrue(host.getLayoutParams().height >= Math.round(120f * density));
+    assertTrue(expandedClock.getLayoutParams().height >= Math.round(48f * density));
+    float rowTop = statusRow.getTranslationY() + statusRow.getPaddingTop();
+    float clockBottom = expandedClock.getTranslationY() + expandedClock.getLayoutParams().height;
+    assertEquals(Math.round(16f * density), rowTop - clockBottom, .001f);
+
+    decor.expansion(0f);
+    position.invoke(decor, true);
+    assertEquals(android.view.View.INVISIBLE, expandedClock.getVisibility());
+    assertEquals(decor.headerHeight(), host.getLayoutParams().height);
+    decor.dispose();
+  }
 }

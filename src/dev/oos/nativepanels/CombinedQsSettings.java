@@ -9,10 +9,12 @@ final class CombinedQsSettings {
   static final String QUERY = "combined_qs_enabled";
   // Preserve the status bar switch across upgrades from 0.6.19.
   static final String HOME_BATTERY = "native_status_icons";
+  static final String ANDROID_17_STATUS_BAR = "android_17_status_bar";
   static final String MOBILE_ORDER = "mobile_type_before_signal";
   static final String PERMISSION_DIALOG = "native_permission_dialog";
   static boolean standalone(String key) {
-    return HOME_BATTERY.equals(key) || MOBILE_ORDER.equals(key) || PERMISSION_DIALOG.equals(key);
+    return HOME_BATTERY.equals(key) || ANDROID_17_STATUS_BAR.equals(key)
+        || MOBILE_ORDER.equals(key) || PERMISSION_DIALOG.equals(key);
   }
 
   static final Uri URI = Uri.parse("content://" + AUTHORITY);

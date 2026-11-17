@@ -197,6 +197,10 @@ public final class MainActivity extends AppCompatActivity {
     feature(page, CombinedQsSettings.HOME_BATTERY, getString(R.string.home_battery), getString(R.string.home_battery_desc),
         R.drawable.ic_battery, com.google.android.material.R.attr.colorSecondaryContainer,
         com.google.android.material.R.attr.colorOnSecondaryContainer);
+    feature(page, CombinedQsSettings.ANDROID_17_STATUS_BAR, getString(R.string.android_17_status_bar),
+        getString(R.string.android_17_status_bar_desc), R.drawable.ic_mobile_signal,
+        com.google.android.material.R.attr.colorSecondaryContainer,
+        com.google.android.material.R.attr.colorOnSecondaryContainer);
     feature(page, CombinedQsSettings.MOBILE_ORDER, getString(R.string.mobile_order), getString(R.string.mobile_order_desc),
         R.drawable.ic_mobile_signal, com.google.android.material.R.attr.colorSecondaryContainer,
         com.google.android.material.R.attr.colorOnSecondaryContainer);

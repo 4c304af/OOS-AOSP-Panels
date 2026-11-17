@@ -20,6 +20,7 @@ final class PanelRuntime {
   final Handler main = new Handler(Looper.getMainLooper());
   final CombinedQs combinedQs;
   final HomeBatteryHook homeBattery = new HomeBatteryHook(this);
+  final Android17StatusBar statusBar = new Android17StatusBar(this);
   final CombinedSettingsLaunch settingsLaunch = new CombinedSettingsLaunch(this);
   final DiagnosticSnapshot snapshots = new DiagnosticSnapshot(this);
   final WifiBridge wifi;
@@ -351,6 +352,11 @@ final class PanelRuntime {
     return RuntimeReply.text(strings, id, args);
   }
 
+  Resources moduleResources(Context host) throws android.content.pm.PackageManager.NameNotFoundException {
+    Resources loaded = strings;
+    return loaded != null ? loaded : host.getPackageManager().getResourcesForApplication(module.getModuleApplicationInfo());
+  }
+
   // Keep translated fields as resource IDs, so the log can also be read after a language change.
   private static final class Event {
     final int id;
@@ -460,6 +466,7 @@ final class PanelRuntime {
         + (combinedQs.status == R.string.combined_selected ? combinedQs.expansion.report()
             + combinedQs.layout.report() + "\n" + combinedQs.editor.report() + "\n" : "")
         + homeBattery.report() + "\n"
+        + statusBar.report() + "\n"
         + (combinedQs.error == null ? "" : combinedQs.error + "\n")
         + res.getString(R.string.last_result, last.format(res)) + "\n\n" + log;
   }

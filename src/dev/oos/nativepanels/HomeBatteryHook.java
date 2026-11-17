@@ -45,6 +45,7 @@ final class HomeBatteryHook {
   }
 
   private boolean enabled(Context context) {
+    if (runtime.statusBar.enabled(context)) return true;
     if (enabled != null) return enabled;
     try {
       String key = CombinedQsSettings.HOME_BATTERY;

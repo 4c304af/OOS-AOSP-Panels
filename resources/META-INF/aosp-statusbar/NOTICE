@@ -1,0 +1,8 @@
+Android 17 mobile status bar drawables
+
+The Android Open Source Project distributes these drawables under the Apache License,
+Version 2.0. The original copyright and license notices are preserved. This notice
+also covers ic_mobile_1_4_bar_error.xml, which has no individual license header.
+
+Source revision 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d, Android 17.0.0_r1
+https://android.googlesource.com/platform/frameworks/base/+/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/packages/SettingsLib/res/drawable/

@@ -54,6 +54,9 @@ public final class ModuleEntry extends XposedModule {
     installPart("bluetooth-settings", bluetoothNavigation::install);
     installPart("bluetooth-tile-settings", bluetoothNavigation::installTile);
     installPart("home-battery", runtime.homeBattery::install);
+    installPart("android-17-status-clock", runtime.statusBar::installClock);
+    installPart("android-17-status-wifi", runtime.statusBar::installWifi);
+    installPart("android-17-status-mobile", runtime.statusBar::installMobile);
     installPart("combined-qs", () -> runtime.combinedQs.install());
     installPart("combined-tile-clicks", () -> CombinedTileClicks.install(runtime));
     installPart("calculator-vendor", () -> CalculatorLaunch.install(runtime, true));
