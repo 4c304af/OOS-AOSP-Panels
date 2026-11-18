@@ -243,6 +243,12 @@ final class ShadeLayout {
     Class<?> modifier = runtime.type("androidx.compose.ui.Modifier");
     String prefix = "com.android.systemui.brightness.ui.compose.";
     Class<?> sliderModel = runtime.type("com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel");
+    try {
+      new CombinedBrightness(() -> {
+        ShadeDecor owner = decor.get();
+        return owner == null ? null : owner.slider;
+      }).install(runtime);
+    } catch (ReflectiveOperationException | RuntimeException unavailable) { warn(unavailable); }
     Method container = runtime.type(prefix + "BrightnessSliderKt").getDeclaredMethod("BrightnessSliderContainer",
         sliderModel, modifier,
         runtime.type(prefix + "ContainerColors"), runtime.type(prefix + "BrightnessSliderDimensions"), composer, int.class, int.class);
