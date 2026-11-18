@@ -2,6 +2,15 @@ package dev.oos.nativepanels;
 
 import static org.junit.Assert.*;
 
+import io.github.libxposed.api.XposedInterface;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
@@ -16,8 +25,23 @@ public class CombinedBrightnessTest {
   public static final class WrongValue { public float brightness; }
   public static final class NoDefaultConstructor {
     public int brightness;
-    public NoDefaultConstructor(int value) { brightness = value; }
+    public NoDefaultConstructor(int value) { throw new AssertionError("Subclass constructor must not run"); }
   }
+
+  // Host JVM equivalent of the framework's parent-constructor allocation. This
+  // is test infrastructure only; production uses libxposed newInstanceSpecial.
+  private static final Map<Class<?>, Constructor<?>> SERIAL_CONSTRUCTORS = new ConcurrentHashMap<>();
+  private static final CombinedBrightness.Allocator ALLOCATE = type -> {
+    Constructor<?> constructor = SERIAL_CONSTRUCTORS.get(type);
+    if (constructor == null) {
+      Class<?> factoryType = Class.forName("sun.reflect.ReflectionFactory");
+      Object factory = factoryType.getMethod("getReflectionFactory").invoke(null);
+      constructor = (Constructor<?>)factoryType.getMethod("newConstructorForSerialization", Class.class, Constructor.class)
+          .invoke(factory, type, Object.class.getDeclaredConstructor());
+      SERIAL_CONSTRUCTORS.put(type, constructor);
+    }
+    return constructor.newInstance();
+  };
 
   private static final CombinedBrightness.Curve HLG = new CombinedBrightness.Curve() {
     public float linear(int progress) { return (float)nativeLinear(progress); }
@@ -38,7 +62,7 @@ public class CombinedBrightnessTest {
 
   private static CombinedBrightness configured(Object owner) throws ReflectiveOperationException {
     CombinedBrightness brightness = new CombinedBrightness(() -> owner);
-    brightness.configure(HLG, FakeDragging.class, FakeStopped.class);
+    brightness.configure(HLG, ALLOCATE, FakeDragging.class, FakeStopped.class);
     return brightness;
   }
 
@@ -124,7 +148,7 @@ public class CombinedBrightnessTest {
     brightness.configure(new CombinedBrightness.Curve() {
       public float linear(int value) { calls.incrementAndGet(); return .5f; }
       public int gamma(float value) { calls.incrementAndGet(); return MAX / 2; }
-    }, FakeDragging.class, FakeStopped.class);
+    }, ALLOCATE, FakeDragging.class, FakeStopped.class);
     for (int invalid : new int[]{Integer.MIN_VALUE, -65535, -1, MAX + 1, Integer.MAX_VALUE}) {
       assertEquals(invalid, brightness.display(owner, invalid));
       FakeDragging drag = dragging(invalid);
@@ -140,7 +164,7 @@ public class CombinedBrightnessTest {
     assertEquals(owner, equalOwner);
     AtomicReference<Object> current = new AtomicReference<>(owner);
     CombinedBrightness brightness = new CombinedBrightness(current::get);
-    brightness.configure(HLG, FakeDragging.class, FakeStopped.class);
+    brightness.configure(HLG, ALLOCATE, FakeDragging.class, FakeStopped.class);
     FakeDragging event = dragging(MAX / 2);
     assertSame(event, brightness.drag(equalOwner, event));
     assertEquals(MAX / 2, brightness.display(equalOwner, MAX / 2));
@@ -160,7 +184,7 @@ public class CombinedBrightnessTest {
     FakeDragging event = dragging(MAX / 2);
     assertEquals(MAX / 2, brightness.display(owner, MAX / 2));
     assertSame(event, brightness.drag(owner, event));
-    brightness.configure(HLG, FakeDragging.class, FakeStopped.class);
+    brightness.configure(HLG, ALLOCATE, FakeDragging.class, FakeStopped.class);
     Object foreign = new Object();
     ExtraState future = new ExtraState();
     future.brightness = MAX / 2;
@@ -179,7 +203,7 @@ public class CombinedBrightnessTest {
       brightness.configure(new CombinedBrightness.Curve() {
         public float linear(int value) { return invalid; }
         public int gamma(float value) { return -1; }
-      }, FakeDragging.class, FakeStopped.class);
+      }, ALLOCATE, FakeDragging.class, FakeStopped.class);
       assertEquals(MAX / 2, brightness.display(owner, MAX / 2));
       FakeDragging event = dragging(MAX / 2);
       assertSame(event, brightness.drag(owner, event));
@@ -189,7 +213,7 @@ public class CombinedBrightnessTest {
       brightness.configure(new CombinedBrightness.Curve() {
         public float linear(int value) { return .5f; }
         public int gamma(float value) { return invalid; }
-      }, FakeDragging.class, FakeStopped.class);
+      }, ALLOCATE, FakeDragging.class, FakeStopped.class);
       FakeStopped event = stopped(MAX / 2);
       assertSame(event, brightness.drag(owner, event));
     }
@@ -206,7 +230,7 @@ public class CombinedBrightnessTest {
         }
         public float linear(int value) throws ReflectiveOperationException { fail(); return 0; }
         public int gamma(float value) throws ReflectiveOperationException { fail(); return 0; }
-      }, FakeDragging.class, FakeStopped.class);
+      }, ALLOCATE, FakeDragging.class, FakeStopped.class);
       assertEquals(MAX / 2, brightness.display(owner, MAX / 2));
       FakeDragging drag = dragging(MAX / 2);
       FakeStopped stop = stopped(MAX / 2);
@@ -217,10 +241,10 @@ public class CombinedBrightnessTest {
 
   @Test public void unknownEventLayoutsAreRejectedBeforeEitherVariantCanBeAdapted() throws Exception {
     Object owner = new Object();
-    for (Class<?> unsupported : new Class<?>[]{ExtraState.class, WrongValue.class, NoDefaultConstructor.class}) {
+    for (Class<?> unsupported : new Class<?>[]{ExtraState.class, WrongValue.class}) {
       CombinedBrightness brightness = new CombinedBrightness(() -> owner);
       assertThrows(ReflectiveOperationException.class,
-          () -> brightness.configure(HLG, FakeDragging.class, unsupported));
+          () -> brightness.configure(HLG, ALLOCATE, FakeDragging.class, unsupported));
       assertEquals(MAX / 2, brightness.display(owner, MAX / 2));
       FakeDragging event = dragging(MAX / 2);
       assertSame(event, brightness.drag(owner, event));
@@ -236,5 +260,129 @@ public class CombinedBrightnessTest {
     assertNotSame(event, second.drag(secondOwner, event));
     assertSame(event, first.drag(secondOwner, event));
     assertEquals(first.display(firstOwner, MAX / 2), second.display(secondOwner, MAX / 2));
+  }
+
+  @Test public void originObjectConstructorAllocatesActualConstructorStrippedEvents() throws Exception {
+    Class<?> dragging = strippedEvent("StrippedDragging"), stopped = strippedEvent("StrippedStopped");
+    assertEquals(0, dragging.getDeclaredConstructors().length);
+    assertEquals(0, stopped.getDeclaredConstructors().length);
+    assertThrows(NoSuchMethodException.class, () -> dragging.getDeclaredConstructor());
+    List<Class<?>> allocations = new ArrayList<>();
+    AtomicInteger parents = new AtomicInteger(), origins = new AtomicInteger();
+    Object invoker = Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[]{XposedInterface.CtorInvoker.class}, (proxy, method, args) -> {
+          if (method.getName().equals("setType")) {
+            assertSame(XposedInterface.Invoker.Type.ORIGIN, args[0]);
+            origins.incrementAndGet();
+            return proxy;
+          }
+          assertEquals("newInstanceSpecial", method.getName());
+          assertEquals(0, ((Object[])args[1]).length);
+          Class<?> subtype = (Class<?>)args[0];
+          allocations.add(subtype);
+          return ALLOCATE.create(subtype);
+        });
+    XposedInterface module = (XposedInterface)Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[]{XposedInterface.class}, (proxy, method, args) -> {
+          assertEquals("getInvoker", method.getName());
+          assertEquals(Object.class.getDeclaredConstructor(), args[0]);
+          parents.incrementAndGet();
+          return invoker;
+        });
+    Object owner = new Object();
+    CombinedBrightness brightness = new CombinedBrightness(() -> owner);
+    brightness.configure(HLG, CombinedBrightness.allocator(module), dragging, stopped);
+    assertEquals(List.of(dragging, stopped), allocations); // Both allocation paths preflight first.
+    for (Class<?> type : new Class<?>[]{dragging, stopped}) {
+      Object original = ALLOCATE.create(type);
+      type.getField("brightness").setInt(original, MAX / 2);
+      Object mapped = brightness.drag(owner, original);
+      assertNotSame(original, mapped);
+      assertSame(type, mapped.getClass());
+      assertEquals(MAX / 2, type.getField("brightness").getInt(original));
+      assertEquals(MAX / 2, brightness.display(owner, type.getField("brightness").getInt(mapped)), 4);
+    }
+    assertEquals(List.of(dragging, stopped, dragging, stopped), allocations);
+    assertEquals(1, parents.get());
+    assertEquals(1, origins.get());
+  }
+
+  @Test public void existingSubclassConstructorIsBypassedAsInTheRom() throws Exception {
+    Object owner = new Object();
+    CombinedBrightness brightness = new CombinedBrightness(() -> owner);
+    brightness.configure(HLG, ALLOCATE, NoDefaultConstructor.class, FakeStopped.class);
+    NoDefaultConstructor original = (NoDefaultConstructor)ALLOCATE.create(NoDefaultConstructor.class);
+    original.brightness = MAX / 2;
+    NoDefaultConstructor mapped = (NoDefaultConstructor)brightness.drag(owner, original);
+    assertNotSame(original, mapped);
+    assertEquals(MAX / 2, original.brightness);
+    assertEquals(MAX / 2, brightness.display(owner, mapped.brightness), 4);
+  }
+
+  @Test public void allocationPreflightFailureCannotEnableHalfOfTheMapping() throws Exception {
+    Object owner = new Object();
+    for (boolean wrongType : new boolean[]{false, true}) {
+      CombinedBrightness brightness = new CombinedBrightness(() -> owner);
+      AtomicInteger attempts = new AtomicInteger();
+      assertThrows(InstantiationException.class, () -> brightness.configure(HLG, type -> {
+        attempts.incrementAndGet();
+        if (type == FakeStopped.class) {
+          if (wrongType) return new Object();
+          throw new InstantiationException("framework allocation unavailable");
+        }
+        return ALLOCATE.create(type);
+      }, FakeDragging.class, FakeStopped.class));
+      assertEquals(2, attempts.get());
+      assertEquals(MAX / 2, brightness.display(owner, MAX / 2));
+      FakeDragging original = dragging(MAX / 2);
+      assertSame(original, brightness.drag(owner, original));
+      assertFalse(brightness.report().contains("ready"));
+    }
+  }
+
+  @Test public void diagnosticSnapshotKeepsInstallationAndLastMappingsAcrossOwnerDisposal() throws Exception {
+    Object owner = new Object();
+    AtomicReference<Object> active = new AtomicReference<>(owner);
+    CombinedBrightness brightness = new CombinedBrightness(active::get);
+    assertTrue(brightness.report().contains("not started"));
+    brightness.configure(HLG, ALLOCATE, FakeDragging.class, FakeStopped.class);
+    int displayed = brightness.display(owner, MAX / 2);
+    FakeDragging mapped = (FakeDragging)brightness.drag(owner, dragging(MAX / 2));
+    String report = brightness.report();
+    assertTrue(report.contains("ready"));
+    assertTrue(report.contains("read(native/ui)=" + MAX / 2 + "/" + displayed));
+    assertTrue(report.contains("drag(ui/native)=" + MAX / 2 + "/" + mapped.brightness));
+    active.set(null);
+    assertTrue(brightness.report().contains("ready"));
+    assertTrue(brightness.report().contains("owner=false"));
+    brightness.failed(new NoSuchMethodException("missing hook"));
+    assertTrue(brightness.report().contains("failed: java.lang.NoSuchMethodException: missing hook"));
+    active.set(owner);
+    assertEquals(MAX / 2, brightness.display(owner, MAX / 2));
+    FakeDragging original = dragging(MAX / 2);
+    assertSame(original, brightness.drag(owner, original));
+  }
+
+  private static Class<?> strippedEvent(String name) throws Exception {
+    // Minimal valid Java class with Object superclass, one int field, and ZERO
+    // methods. javac fixtures cannot reproduce the constructor removal in OOS DEX.
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    DataOutputStream out = new DataOutputStream(bytes);
+    out.writeInt(0xcafebabe); out.writeShort(0); out.writeShort(52);
+    out.writeShort(7); // Constant-pool count, including the unused index zero.
+    out.writeByte(1); out.writeUTF("dev/oos/nativepanels/" + name); // #1 name
+    out.writeByte(7); out.writeShort(1); // #2 this class
+    out.writeByte(1); out.writeUTF("java/lang/Object"); // #3 superclass name
+    out.writeByte(7); out.writeShort(3); // #4 superclass
+    out.writeByte(1); out.writeUTF("brightness"); // #5 field name
+    out.writeByte(1); out.writeUTF("I"); // #6 field descriptor
+    out.writeShort(0x0011); out.writeShort(2); out.writeShort(4); // public final class
+    out.writeShort(0); out.writeShort(1); // no interfaces, one field
+    out.writeShort(0x0001); out.writeShort(5); out.writeShort(6); out.writeShort(0);
+    out.writeShort(0); out.writeShort(0); // no methods, no class attributes
+    byte[] data = bytes.toByteArray();
+    return new ClassLoader(CombinedBrightnessTest.class.getClassLoader()) {
+      Class<?> define() { return defineClass(null, data, 0, data.length); }
+    }.define();
   }
 }

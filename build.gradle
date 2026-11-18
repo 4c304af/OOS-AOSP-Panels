@@ -7,8 +7,8 @@ android {
         applicationId 'dev.oos.nativepanels'
         minSdk 30
         targetSdk 35
-        versionCode 63
-        versionName '0.6.51-test'
+        versionCode 64
+        versionName '0.6.52-test'
     }
     buildFeatures { buildConfig true }
     sourceSets {
@@ -52,7 +52,7 @@ dependencies {
     // Scope requests use the stable service 101 protocol, also supported by API 102 frameworks.
     implementation 'io.github.libxposed:service:101.0.0'
     implementation 'com.google.android.material:material:1.14.0'
-    testRuntimeOnly 'io.github.libxposed:api:102.0.0'
+    testImplementation 'io.github.libxposed:api:102.0.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.15.1'
 }

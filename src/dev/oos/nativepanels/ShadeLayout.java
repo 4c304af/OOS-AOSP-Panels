@@ -20,6 +20,7 @@ final class ShadeLayout {
   final NotificationStackScrim notificationScrim = new NotificationStackScrim();
   final CombinedTouch touch;
   final CombinedMedia media;
+  final CombinedBrightness brightness;
   private WeakReference<Object> headerController = new WeakReference<>(null);
   private WeakReference<Fragment> selected = new WeakReference<>(null);
   private WeakReference<ShadeDecor> decor = new WeakReference<>(null);
@@ -37,7 +38,15 @@ final class ShadeLayout {
   float shadeExpansion, scrimTranslation;
   private String warning = "";
 
-  ShadeLayout(PanelRuntime runtime) { this.runtime = runtime; touch = new CombinedTouch(runtime); media = new CombinedMedia(runtime, this); }
+  ShadeLayout(PanelRuntime runtime) {
+    this.runtime = runtime;
+    touch = new CombinedTouch(runtime);
+    media = new CombinedMedia(runtime, this);
+    brightness = new CombinedBrightness(() -> {
+      ShadeDecor owner = decor.get();
+      return owner == null ? null : owner.slider;
+    });
+  }
   void select(Fragment fragment) { selected = new WeakReference<>(fragment); }
 
   void clear() {
@@ -244,11 +253,11 @@ final class ShadeLayout {
     String prefix = "com.android.systemui.brightness.ui.compose.";
     Class<?> sliderModel = runtime.type("com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel");
     try {
-      new CombinedBrightness(() -> {
-        ShadeDecor owner = decor.get();
-        return owner == null ? null : owner.slider;
-      }).install(runtime);
-    } catch (ReflectiveOperationException | RuntimeException unavailable) { warn(unavailable); }
+      brightness.install(runtime);
+    } catch (ReflectiveOperationException | RuntimeException unavailable) {
+      brightness.failed(unavailable);
+      warn(unavailable);
+    }
     Method container = runtime.type(prefix + "BrightnessSliderKt").getDeclaredMethod("BrightnessSliderContainer",
         sliderModel, modifier,
         runtime.type(prefix + "ContainerColors"), runtime.type(prefix + "BrightnessSliderDimensions"), composer, int.class, int.class);
@@ -489,7 +498,8 @@ final class ShadeLayout {
 
   String report() {
     ShadeDecor current = decor.get();
-    return current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning);
+    return (current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning))
+        + "\n" + brightness.report();
   }
 
   boolean isEditing() throws Exception {
