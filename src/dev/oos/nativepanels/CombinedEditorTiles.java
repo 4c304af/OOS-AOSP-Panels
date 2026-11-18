@@ -139,7 +139,36 @@ final class CombinedEditorTiles {
     deoptimize("com.android.systemui.qs.panels.domain.interactor.EditTilesListInteractor$getTilesToEdit$1", "invokeSuspend");
     deoptimize("com.android.systemui.qs.panels.ui.viewmodel.toolbar.EditModeButtonViewModel", "onButtonClick");
     deoptimize("com.android.systemui.qs.panels.ui.viewmodel.toolbar.EditModeButtonViewModel$onButtonClick$1", "invokeSuspend");
+    try { installRecorderPreview(interactor, tile, state, spec, commonIcon, category); }
+    catch (ReflectiveOperationException absent) { /* Other editor versions keep their native preview. */ }
     status = "ready";
+  }
+
+  private void installRecorderPreview(Class<?> interactor, Class<?> tile, Class<?> state, Class<?> spec,
+      Class<?> icon, Class<?> category) throws ReflectiveOperationException {
+    Class<?> text = runtime.type("androidx.compose.ui.text.AnnotatedString");
+    Constructor<?> preview = runtime.type("com.android.systemui.qs.panels.ui.viewmodel.EditTileViewModel")
+        .getConstructor(spec, icon, text, text, text, icon, boolean.class, boolean.class, Set.class, category);
+    Method current = interactor.getMethod("getCurrentQSTiles");
+    Method tileName = tile.getMethod("getTileSpec"), tileState = tile.getMethod("getState");
+    Field capability = state.getField("dualTarget");
+    runtime.module.hook(preview).setId("native-panels:edit-recorder-targets").intercept(chain -> {
+      Session active = session;
+      if (active == null || !(boolean)chain.getArg(6) || (boolean)chain.getArg(7)) return chain.proceed();
+      String name = (String)specName.invoke(chain.getArg(0));
+      if (!CombinedTileClicks.recorderSpec(name) || !active.current()) return chain.proceed();
+      // The editor rebuilds its current tiles after Add and Resize. Read the same live backend as the grid.
+      for (Object backend : (List<?>)current.invoke(active.source)) {
+        if (CombinedTileClicks.recorderBackend(name, backend.getClass().getName())
+            && name.equals(tileName.invoke(backend)) && capability.getBoolean(tileState.invoke(backend))) {
+          Object[] args = chain.getArgs().toArray();
+          args[7] = true;
+          return chain.proceed(args);
+        }
+      }
+      return chain.proceed();
+    });
+    deoptimize("com.android.systemui.qs.panels.ui.viewmodel.UnloadedEditTileViewModel", "load");
   }
 
   private void begin(Object owner) throws ReflectiveOperationException {
