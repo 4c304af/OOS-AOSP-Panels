@@ -66,6 +66,7 @@ public final class ModuleEntry extends XposedModule {
     installPart("combined-qs", () -> runtime.combinedQs.install());
     installPart("combined-tile-clicks", () -> CombinedTileClicks.install(runtime));
     installPart("recorder-panel-motion", () -> new RecorderPanelMotion().install(runtime));
+    installPart("recorder-tile-dialog", () -> new RecorderTileDialog(runtime).install());
     installPart("calculator-vendor", () -> CalculatorLaunch.install(runtime, true));
     installPart("calculator-service", () -> CalculatorLaunch.install(runtime, false));
     installPart("combined-disclosure", () -> CombinedFooter.installDisclosure(runtime));
