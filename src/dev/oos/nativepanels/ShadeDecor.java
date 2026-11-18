@@ -419,7 +419,6 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     try {
       statusIcons.bind(controller, foreground);
       headerBound = true;
-      statusIcons.attached(frame.isAttachedToWindow());
       statusIcons.active(listening);
     } catch (Throwable e) { layout.warn(e); }
   }
@@ -490,7 +489,6 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         catch (RuntimeException e) { layout.warn(e); }
       }
     });
-    if (statusIcons != null) statusIcons.attached(true);
     listen(open);
   }
 
@@ -504,11 +502,11 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     preview.reset();
     if (frame.getViewTreeObserver().isAlive()) frame.getViewTreeObserver().removeOnPreDrawListener(this);
     listen(false);
-    if (statusIcons != null) statusIcons.attached(false);
   }
 
   void dispose() {
     disposed = true;
+    if (statusIcons != null) statusIcons.dispose();
     restoreSharedHeader();
     preview.reset();
     if (frame.isAttachedToWindow()) onViewDetachedFromWindow(frame);

@@ -219,9 +219,6 @@ public final class MainActivity extends AppCompatActivity {
     feature(page, CombinedQsSettings.HOME_BATTERY, getString(R.string.home_battery), getString(R.string.home_battery_desc),
         R.drawable.ic_battery, com.google.android.material.R.attr.colorSecondaryContainer,
         com.google.android.material.R.attr.colorOnSecondaryContainer);
-    feature(page, CombinedQsSettings.MOBILE_ORDER, getString(R.string.mobile_order), getString(R.string.mobile_order_desc),
-        R.drawable.ic_mobile_signal, com.google.android.material.R.attr.colorSecondaryContainer,
-        com.google.android.material.R.attr.colorOnSecondaryContainer);
     feature(page, CombinedQsSettings.PERMISSION_DIALOG, getString(R.string.permission_dialogs), getString(R.string.permission_dialogs_desc),
         R.drawable.ic_privacy, com.google.android.material.R.attr.colorTertiaryContainer,
         com.google.android.material.R.attr.colorOnTertiaryContainer);

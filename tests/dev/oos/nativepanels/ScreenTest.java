@@ -157,6 +157,17 @@ public class ScreenTest {
     }
   }
 
+  @Test public void oldEnabledMobileOrderSettingIsIgnoredAfterUpgrade() {
+    String key = "mobile_type_before_signal";
+    var context = org.robolectric.RuntimeEnvironment.getApplication();
+    assertTrue(CombinedQsSettings.setEnabled(context, key, true));
+    try (ActivityController<MainActivity> c = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity app = c.get();
+      assertNull(app.getWindow().getDecorView().findViewWithTag(key));
+      assertNull(app.getContentResolver().call(CombinedQsSettings.URI, key, null, null));
+    }
+  }
+
   private boolean readCombinedSetting(MainActivity activity) {
     android.os.Bundle value = activity.getContentResolver().call(
         CombinedQsSettings.URI, CombinedQsSettings.QUERY, null, null);
@@ -290,7 +301,7 @@ public class ScreenTest {
   }
 
   private void assertHomeSwitches(View decor) {
-    String[] settings = {"combined_qs", CombinedQsSettings.HOME_BATTERY, CombinedQsSettings.MOBILE_ORDER,
+    String[] settings = {"combined_qs", CombinedQsSettings.HOME_BATTERY,
         CombinedQsSettings.PERMISSION_DIALOG, CombinedQsSettings.BLUETOOTH_DETAILS, CombinedQsSettings.ABOUT_PHONE};
     for (String key : Protocol.KEYS) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
     for (String key : settings) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);

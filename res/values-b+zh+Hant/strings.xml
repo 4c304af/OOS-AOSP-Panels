@@ -147,8 +147,6 @@
     <string name="home_battery_desc">在狀態欄和鎖定畫面的狀態欄使用 AOSP 電池圖示。更改後請重啟系統介面。</string>
     <string name="notification_cards">AOSP 通知卡片</string>
     <string name="notification_cards_desc">在合併模式下，為一般通知使用 AOSP 的背景、圓角和間距。</string>
-    <string name="mobile_order">將網路制式放在訊號條前</string>
-    <string name="mobile_order_desc">將大型行動網路制式放在訊號條前，並縮小兩者的間距。更改後請重啟系統介面。</string>
     <string name="bluetooth_details">原生藍牙裝置設定</string>
     <string name="bluetooth_details_desc">修正原生藍牙裝置設定頁，讓設定與快速設定中的裝置詳情按鈕都開啟此頁。開啟後依提示同意 LSPosed 和 root 授權，再重新開啟裝置頁面。</string>
     <string name="bluetooth_scope_connecting">正在連接 LSPosed…</string>

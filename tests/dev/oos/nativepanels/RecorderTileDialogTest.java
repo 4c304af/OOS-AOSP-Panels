@@ -80,4 +80,36 @@ public class RecorderTileDialogTest {
     RecorderTileDialog.setContent(new AlertDialog.Builder(ctx).create(), body, remote, null);
     assertEquals(240, remote.getLayoutParams().height);
   }
+
+  @Test public void phoneCardHasSideMarginsAndKeepsSmallerLandscapeAndFoldWidths() {
+    assertEquals(936, RecorderTileDialog.cardWidth(-1, 1080, 72, 936));
+    assertEquals(696, RecorderTileDialog.cardWidth(696, 1800, 40, 624));
+    assertEquals(624, RecorderTileDialog.cardWidth(-1, 1536, 0, 624));
+    assertEquals(452, RecorderTileDialog.cardWidth(696, 500, 24, 624));
+  }
+
+  @Test public void recordingWaitsForTheDialogToFinishReturningAndRunsOnlyOnce() {
+    Activity ctx = Robolectric.buildActivity(Activity.class).setup().visible().get();
+    AlertDialog dialog = new AlertDialog(ctx) {
+      @Override public void dismiss() { /* SystemUI owns completion of the return animation. */ }
+    };
+    RecorderTileDialog.Display display = new RecorderTileDialog.Display(new Object(), dialog);
+    dialog.show();
+    AtomicInteger launches = new AtomicInteger();
+    display.select(launches::incrementAndGet);
+    display.select(() -> fail("Second selection replaced the first"));
+    assertEquals(0, launches.get());
+    display.finish();
+    display.finish();
+    display.select(() -> fail("Selection after dismissal"));
+    assertEquals(1, launches.get());
+  }
+
+  @Test public void dismissingWithoutASelectionDoesNotLaunchRecorder() {
+    Activity ctx = Robolectric.buildActivity(Activity.class).setup().get();
+    AlertDialog dialog = new AlertDialog.Builder(ctx).create();
+    RecorderTileDialog.Display display = new RecorderTileDialog.Display(new Object(), dialog);
+    display.finish();
+    display.select(() -> fail("Back or an outside tap should only close the panel"));
+  }
 }

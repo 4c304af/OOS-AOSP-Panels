@@ -8,9 +8,13 @@ import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowMetrics;
 import android.widget.FrameLayout;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.ref.WeakReference;
@@ -20,7 +24,30 @@ import java.lang.reflect.Method;
 final class RecorderTileDialog {
   private final PanelRuntime r;
   private final ThreadLocal<Object> clickSource = new ThreadLocal<>();
-  private record Display(Object detail, AlertDialog dialog) {}
+  static final class Display {
+    final Object detail;
+    final AlertDialog dialog;
+    private Runnable selection;
+    private boolean finished;
+
+    Display(Object detail, AlertDialog dialog) {
+      this.detail = detail;
+      this.dialog = dialog;
+    }
+
+    void select(Runnable action) {
+      if (finished || selection != null || !dialog.isShowing()) return;
+      selection = action;
+      dialog.dismiss();
+    }
+
+    void finish() {
+      finished = true;
+      Runnable action = selection;
+      selection = null;
+      if (action != null) action.run();
+    }
+  }
   private volatile Display showing;
 
   RecorderTileDialog(PanelRuntime r) { this.r = r; }
@@ -56,7 +83,7 @@ final class RecorderTileDialog {
         .intercept(chain -> {
           Display current = showing;
           if (current != null && Reflect.get(current.detail, "viewDialogInteractor") == chain.getThisObject())
-            close(current);
+            close(current, "instant".equals(chain.getArg(0)));
           return chain.proceed();
         });
 
@@ -65,13 +92,24 @@ final class RecorderTileDialog {
     r.module.hook(secondary).setId("native-panels:recorder-dialog-source").intercept(chain ->
         withinClick(chain.getArg(0), chain::proceed));
     r.module.deoptimize(secondary);
-    // Both the consent-activity and foreground-service paths finish the menu selection.
-    r.module.hook(platform.getDeclaredMethod("startRecording", boolean.class))
+    // The original menu callback collapses QS before it launches the recorder. Keep the source
+    // tile in place until AnimatedDialog has removed its overlay and delivered onDismiss.
+    Method itemClick = r.type(platform.getName() + "$OplusScreenRecordDetailAdapter$updateItem$2")
+        .getDeclaredMethod("onDetailItemClick", r.type("com.oplus.systemui.qs.base.dialog.OplusQSDetailItems$Item"));
+    r.module.hook(itemClick)
         .setId("native-panels:recorder-dialog-selection").intercept(chain -> {
           Display current = showing;
-          if (current != null && current.detail == Reflect.get(chain.getThisObject(), "detailInteractor"))
-            close(current);
-          return chain.proceed();
+          if (current == null) return chain.proceed();
+          Object callback = chain.getThisObject(), item = chain.getArg(0);
+          Object tile = Reflect.get(callback, "this$0");
+          if (current.detail != Reflect.get(tile, "detailInteractor")) return chain.proceed();
+          current.select(() -> {
+            try {
+              if (!r.locked() && !(boolean)Reflect.call(tile, "screenRecordDisabled"))
+                Reflect.invoke(itemClick, callback, item);
+            } catch (Throwable failure) { r.combinedQs.layout.warn(failure); }
+          });
+          return null;
         });
     Class<?> extension = r.type("com.oplus.systemui.qs.tileex.CustomTileEx");
     Method customClick = extension.getDeclaredMethod("handleSecondaryClick",
@@ -117,20 +155,23 @@ final class RecorderTileDialog {
     View content = (View)Reflect.invoke(createView, adapter, theme, body, false);
     if (content == null) return false;
     setContent(dialog, body, content, (CharSequence)Reflect.call(adapter, "getTitle"));
+    Display current = new Display(detail, dialog);
     Intent settings = (Intent)Reflect.call(adapter, "getSettingsIntent");
     if (settings != null) {
       int label = theme.getResources().getIdentifier("quick_more_settings", "string", Protocol.TARGET);
       Object starter = r.provider("activityStarterImplProvider");
       Method start = Reflect.method(starter.getClass(), "postStartActivityDismissingKeyguard", Intent.class, int.class);
-      dialog.setButton(DialogInterface.BUTTON_POSITIVE, theme.getText(label), (d, button) -> {
-        try { Reflect.invoke(start, starter, settings, 0); }
+      dialog.setButton(DialogInterface.BUTTON_POSITIVE, theme.getText(label), (d, button) -> current.select(() -> {
+        try { if (!r.locked()) Reflect.invoke(start, starter, settings, 0); }
         catch (Throwable failure) { r.combinedQs.layout.warn(failure); }
-      });
+      }));
     }
     Object animator = r.provider("provideDialogTransitionAnimatorProvider");
     setWindowSurface(dialog);
-    dialog.setOnDismissListener(ignored -> release(dialog, detail));
-    showing = new Display(detail, dialog);
+    dialog.create();
+    fitWindow(dialog);
+    dialog.setOnDismissListener(ignored -> release(current));
+    showing = current;
     try {
       Reflect.call(detail, "onShow");
       // The window supplies the sole outer shape. SystemUI reads it and the clicked tile's live
@@ -143,7 +184,7 @@ final class RecorderTileDialog {
       }
       throw failure;
     } finally {
-      if (!dialog.isShowing()) release(dialog, detail);
+      if (!dialog.isShowing()) release(current);
     }
     return false;
   }
@@ -171,15 +212,55 @@ final class RecorderTileDialog {
     } finally { style.recycle(); }
   }
 
-  private void close(Display current) {
-    r.main.post(() -> { if (showing == current) current.dialog.dismiss(); });
+  private static void fitWindow(AlertDialog dialog) {
+    Window window = dialog.getWindow();
+    WindowMetrics metrics = window.getWindowManager().getCurrentWindowMetrics();
+    var insets = metrics.getWindowInsets().getInsetsIgnoringVisibility(
+        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+    int available = metrics.getBounds().width() - insets.left - insets.right;
+    var res = dialog.getContext().getResources();
+    int marginId = res.getIdentifier("qs_detail_background_side_margin", "dimen", Protocol.TARGET);
+    int widthId = res.getIdentifier("qs_detail_width", "dimen", Protocol.TARGET);
+    float density = res.getDisplayMetrics().density;
+    int margin = marginId == 0 ? Math.round(24 * density) : res.getDimensionPixelSize(marginId);
+    int wideWidth = widthId == 0 ? Math.round(312 * density) : res.getDimensionPixelSize(widthId);
+    var params = window.getAttributes();
+    window.setLayout(cardWidth(params.width, available, margin, wideWidth), params.height);
   }
 
-  private void release(AlertDialog dialog, Object detail) {
-    Display current = showing;
-    if (current == null || current.dialog != dialog) return;
+  static int cardWidth(int nativeWidth, int available, int margin, int wideWidth) {
+    if (available <= 0) return nativeWidth;
+    int limit = margin == 0 ? Math.min(available, wideWidth) : Math.max(1, available - 2 * margin);
+    return nativeWidth > 0 ? Math.min(nativeWidth, limit) : limit;
+  }
+
+  private void close(Display current, boolean instant) {
+    Runnable dismiss = () -> {
+      if (showing != current) return;
+      if (instant) {
+        // A remote recorder can already have collapsed the shade. Its source is no longer a
+        // valid return target. Only suppress this dialog's exit in that case.
+        try {
+          Object animator = r.provider("provideDialogTransitionAnimatorProvider");
+          for (Object open : (Iterable<?>)Reflect.call(animator, "getOpenedDialogs")) {
+            if (Reflect.call(open, "getDialog") == current.dialog) {
+              Reflect.method(open.getClass(), "setExitAnimationDisabled", boolean.class).invoke(open, true);
+              break;
+            }
+          }
+        } catch (Throwable failure) { r.combinedQs.layout.warn(failure); }
+      }
+      current.dialog.dismiss();
+    };
+    if (Looper.myLooper() == r.main.getLooper()) dismiss.run();
+    else r.main.post(dismiss);
+  }
+
+  private void release(Display current) {
+    if (showing != current) return;
     showing = null;
-    try { Reflect.call(detail, "onDismiss"); }
+    try { Reflect.call(current.detail, "onDismiss"); }
     catch (Throwable failure) { r.combinedQs.layout.warn(failure); }
+    current.finish();
   }
 }

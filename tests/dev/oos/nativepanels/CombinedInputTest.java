@@ -16,6 +16,50 @@ import org.robolectric.annotation.GraphicsMode;
 @Config(sdk = 35)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 public class CombinedInputTest {
+  public static final class SubscriptionController {
+    int subscription = 1, registrations, removals;
+    public void addIconGroup(LinearLayout group) {
+      View signal = new View(group.getContext());
+      signal.setTag(subscription);
+      group.addView(signal);
+      registrations++;
+    }
+    public void removeIconGroup(LinearLayout group) {
+      group.removeAllViews();
+      removals++;
+    }
+  }
+
+  @Test public void movingHeaderBetweenHostsRebindsCurrentSubscriptionWhileShadeStaysAttached() throws Exception {
+    var activity = org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup().visible().get();
+    LinearLayout shade = new LinearLayout(activity), first = new LinearLayout(activity),
+        second = new LinearLayout(activity), group = new LinearLayout(activity);
+    activity.setContentView(shade);
+    shade.addView(first);
+    shade.addView(second);
+    first.addView(group);
+    var runtime = new PanelRuntime(null, getClass().getClassLoader());
+    var icons = new CombinedStatusIcons(runtime, group, new View(activity));
+    Reflect.field(CombinedStatusIcons.class, "icons").set(icons, group);
+    Reflect.field(CombinedStatusIcons.class, "manager").set(icons, group);
+    var controller = new SubscriptionController();
+    icons.observeGroup(controller, LinearLayout.class);
+    assertEquals(1, group.getChildAt(0).getTag());
+    first.removeView(group);
+    assertTrue(shade.isAttachedToWindow());
+    assertEquals(0, group.getChildCount());
+    controller.subscription = 2;
+    second.addView(group);
+    assertEquals(1, group.getChildCount());
+    assertEquals(2, group.getChildAt(0).getTag());
+    icons.dispose();
+    second.removeView(group);
+    first.addView(group);
+    assertEquals(2, controller.registrations);
+    assertEquals(2, controller.removals);
+    assertEquals(0, group.getChildCount());
+  }
+
   @Test public void cellularInsetUsesLogicalEndAndRestoresOemPadding() {
     for (int direction : new int[]{View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL}) {
       LinearLayout icons = new LinearLayout(org.robolectric.RuntimeEnvironment.getApplication());
