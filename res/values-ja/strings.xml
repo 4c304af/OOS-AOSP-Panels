@@ -149,4 +149,18 @@
     <string name="notification_cards_desc">一体型パネルで、通常の通知の背景、角の丸み、余白を AOSP のスタイルに変更します。</string>
     <string name="mobile_order">通信規格を電波アイコンの前に表示</string>
     <string name="mobile_order_desc">大きな通信規格アイコンを電波アイコンの前に並べ、間隔を詰めます。変更後はシステム UI を再起動してください。</string>
+    <string name="bluetooth_details">Android 標準の Bluetooth デバイス設定</string>
+    <string name="bluetooth_details_desc">Android 標準のデバイス設定画面を整え、設定とクイック設定のデバイス詳細ボタンから開くようにします。オンにしたら LSPosed と root の案内で許可し、デバイス画面を開き直してください。</string>
+    <string name="bluetooth_scope_connecting">LSPosed に接続中…</string>
+    <string name="bluetooth_scope_requesting">LSPosed の案内で「設定」と「ワイヤレス設定」の追加を許可してください。案内が表示されない場合は、通知を確認してください。</string>
+    <string name="bluetooth_scope_missing">「設定」と「ワイヤレス設定」を対象に追加する必要があります。「設定を続ける」をタップし、LSPosed と root の案内で許可してください。</string>
+    <string name="bluetooth_scope_added">「設定」と「ワイヤレス設定」を追加しました。「設定を続ける」で反映し、Bluetooth デバイス画面を開き直してください。</string>
+    <string name="bluetooth_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「設定」と「ワイヤレス設定」を選び、ここに戻ってください。</string>
+    <string name="bluetooth_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にして、アプリを開き直してください。対象に「設定」と「ワイヤレス設定」を手動で選び、端末を再起動して反映することもできます。</string>
+    <string name="bluetooth_scope_root_pending">設定アプリに反映しています。root の案内が表示されたら許可してください。Bluetooth 接続は維持されます。</string>
+    <string name="bluetooth_scope_ready">設定が完了しました。設定またはクイック設定から Bluetooth デバイスの詳細を開き直してください。</string>
+    <string name="bluetooth_scope_root_denied">root 権限が許可されていません。root 管理アプリでこのモジュールを許可し、「設定を続ける」をタップしてください。端末を再起動して反映することもできます。</string>
+    <string name="bluetooth_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="bluetooth_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="bluetooth_scope_retry">設定を続ける</string>
 </resources>

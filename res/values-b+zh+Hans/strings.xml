@@ -149,4 +149,18 @@
     <string name="notification_cards_desc">在合并模式下，为普通通知使用 AOSP 的背景、圆角和间距。</string>
     <string name="mobile_order">将网络制式放在信号条前</string>
     <string name="mobile_order_desc">将大号移动网络制式放在信号条前，并收紧两者的间距。更改后请重启系统界面。</string>
+    <string name="bluetooth_details">原生蓝牙设备设置</string>
+    <string name="bluetooth_details_desc">修正原生蓝牙设备设置页，让设置与快速设置中的设备详情按钮都打开此页。开启后按提示同意 LSPosed 和 root 授权，再重新打开设备页面。</string>
+    <string name="bluetooth_scope_connecting">正在连接 LSPosed…</string>
+    <string name="bluetooth_scope_requesting">请按照 LSPosed 的提示，允许加入“设置”与“无线设置”。如果没有看到提示，请查看通知栏。</string>
+    <string name="bluetooth_scope_missing">需要将“设置”与“无线设置”加入作用域。点“继续设置”，依次同意 LSPosed 与 root 提示。</string>
+    <string name="bluetooth_scope_added">已加入“设置”与“无线设置”。点“继续设置”应用，再重新打开蓝牙设备页面。</string>
+    <string name="bluetooth_scope_failed">尚未完成设置。点“继续设置”重试，或先到 LSPosed 中此模块的作用域勾选“设置”与“无线设置”，再回来继续。</string>
+    <string name="bluetooth_scope_unavailable">尚未连上 LSPosed。请启用此模块，再重新打开本 App。也可以手动勾选“设置”与“无线设置”作用域后重启手机。</string>
+    <string name="bluetooth_scope_root_pending">正在应用到设置 App。如果 root 管理器弹出提示，请允许授权。蓝牙连接会保持。</string>
+    <string name="bluetooth_scope_ready">设置完成。请从设置或快速设置重新打开蓝牙设备详情。</string>
+    <string name="bluetooth_scope_root_denied">尚未获取 root 权限。请在 root 管理器允许本模块，再点“继续设置”。也可以重启手机应用。</string>
+    <string name="bluetooth_scope_root_timeout">应用设置超时。请确认已允许 root 授权，再点“继续设置”，或重启手机应用。</string>
+    <string name="bluetooth_scope_root_failed">未能自动应用。请确认 root 授权后点“继续设置”，或重启手机应用。</string>
+    <string name="bluetooth_scope_retry">继续设置</string>
 </resources>

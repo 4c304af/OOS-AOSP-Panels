@@ -149,4 +149,18 @@
     <string name="notification_cards_desc">在合併模式下，為一般通知使用 AOSP 的背景、圓角和間距。</string>
     <string name="mobile_order">將網路制式放在訊號條前</string>
     <string name="mobile_order_desc">將大型行動網路制式放在訊號條前，並縮小兩者的間距。更改後請重啟系統介面。</string>
+    <string name="bluetooth_details">原生藍牙裝置設定</string>
+    <string name="bluetooth_details_desc">修正原生藍牙裝置設定頁，讓設定與快速設定中的裝置詳情按鈕都開啟此頁。開啟後依提示同意 LSPosed 和 root 授權，再重新開啟裝置頁面。</string>
+    <string name="bluetooth_scope_connecting">正在連接 LSPosed…</string>
+    <string name="bluetooth_scope_requesting">請依照 LSPosed 的提示，允許加入「設定」與「無線設定」。若沒有看到提示，請查看通知欄。</string>
+    <string name="bluetooth_scope_missing">需要將「設定」與「無線設定」加入作用域。點「繼續設定」，依序同意 LSPosed 與 root 提示。</string>
+    <string name="bluetooth_scope_added">已加入「設定」與「無線設定」。點「繼續設定」套用，再重新開啟藍牙裝置頁面。</string>
+    <string name="bluetooth_scope_failed">尚未完成設定。點「繼續設定」重試，或先到 LSPosed 中此模組的作用域勾選「設定」與「無線設定」，再回來繼續。</string>
+    <string name="bluetooth_scope_unavailable">尚未連上 LSPosed。請啟用此模組，再重新開啟本 App。也可以手動勾選「設定」與「無線設定」作用域後重啟手機。</string>
+    <string name="bluetooth_scope_root_pending">正在套用至設定 App。若 root 管理器跳出提示，請允許授權。藍牙連線會保持。</string>
+    <string name="bluetooth_scope_ready">設定完成。請從設定或快速設定重新開啟藍牙裝置詳情。</string>
+    <string name="bluetooth_scope_root_denied">尚未取得 root 權限。請在 root 管理器允許本模組，再點「繼續設定」。也可以重啟手機套用。</string>
+    <string name="bluetooth_scope_root_timeout">套用設定逾時。請確認已允許 root 授權，再點「繼續設定」，或重啟手機套用。</string>
+    <string name="bluetooth_scope_root_failed">未能自動套用。請確認 root 授權後點「繼續設定」，或重啟手機套用。</string>
+    <string name="bluetooth_scope_retry">繼續設定</string>
 </resources>

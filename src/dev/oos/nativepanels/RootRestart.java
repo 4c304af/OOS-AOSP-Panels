@@ -39,6 +39,26 @@ final class RootRestart {
           + "echo OOSNP_RESTART=FAILED\n"
           + "exit 12\n";
 
+  private static final String BLUETOOTH_SETTINGS_RESTART =
+      "oosnp_running=0\n"
+          + "oosnp_failed=0\n"
+          + "for oosnp_target in com.android.settings com.oplus.wirelesssettings; do\n"
+          + "  if /system/bin/pidof \"$oosnp_target\" >/dev/null; then\n"
+          + "    oosnp_running=1\n"
+          + "    /system/bin/killall -TERM \"$oosnp_target\" || oosnp_failed=1\n"
+          + "  fi\n"
+          + "done\n"
+          + "if [ \"$oosnp_failed\" = 1 ]; then\n"
+          + "  echo OOSNP_RESTART=FAILED\n"
+          + "  exit 12\n"
+          + "fi\n"
+          + "if [ \"$oosnp_running\" = 0 ]; then\n"
+          + "  echo OOSNP_RESTART=NOT_RUNNING\n"
+          + "  exit 11\n"
+          + "fi\n"
+          + "echo OOSNP_RESTART=OK\n"
+          + "exit 0\n";
+
   private RootRestart() {}
 
   static Result restart() throws IOException {
@@ -50,6 +70,18 @@ final class RootRestart {
     if (!allowed.getAsBoolean()) return Result.FAILED;
     return runPermissionController(
         new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
+  /** Reloads only the two Settings hosts; the Bluetooth service and connections keep running. */
+  static Result restartBluetoothSettings(BooleanSupplier allowed) throws IOException {
+    if (!allowed.getAsBoolean()) return Result.FAILED;
+    return runBluetoothSettings(
+        new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
+  static Result runBluetoothSettings(Process process, long authTimeoutMs,
+      long commandTimeoutMs, BooleanSupplier allowed) {
+    return run(process, authTimeoutMs, commandTimeoutMs, BLUETOOTH_SETTINGS_RESTART, allowed);
   }
 
   static Result run(Process process, long authTimeoutMs, long commandTimeoutMs) {

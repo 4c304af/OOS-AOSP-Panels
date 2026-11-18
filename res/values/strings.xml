@@ -149,4 +149,18 @@
     <string name="notification_cards_desc">Use the AOSP background, corners and spacing for standard notifications in the combined shade.</string>
     <string name="mobile_order">Network type before signal bars</string>
     <string name="mobile_order_desc">Place the large mobile network type before the signal bars, with compact spacing. Restart System UI after changing this setting.</string>
+    <string name="bluetooth_details">Android Bluetooth device settings</string>
+    <string name="bluetooth_details_desc">Improve the Android device settings page and open it from device details buttons in Settings and Quick Settings. Turn this on, approve the LSPosed and root prompts, then reopen the device page.</string>
+    <string name="bluetooth_scope_connecting">Connecting to LSPosed…</string>
+    <string name="bluetooth_scope_requesting">Approve the LSPosed prompt to add Settings and Wireless Settings. If no prompt appears, check your notifications.</string>
+    <string name="bluetooth_scope_missing">Settings and Wireless Settings need to be in the module’s scope. Tap Continue setup and follow the LSPosed and root prompts.</string>
+    <string name="bluetooth_scope_added">Settings and Wireless Settings have been added. Tap Continue setup to apply, then reopen the Bluetooth device page.</string>
+    <string name="bluetooth_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Settings and Wireless Settings in this module’s scope in LSPosed, then return here.</string>
+    <string name="bluetooth_scope_unavailable">LSPosed is not connected. Enable this module and reopen this app. You can also select Settings and Wireless Settings in its scope manually, then restart your phone.</string>
+    <string name="bluetooth_scope_root_pending">Applying the change to Settings. Allow root access if prompted. Bluetooth connections will stay active.</string>
+    <string name="bluetooth_scope_ready">Setup complete. Reopen a Bluetooth device’s details from Settings or Quick Settings.</string>
+    <string name="bluetooth_scope_root_denied">Root access has not been granted. Allow this module in your root manager, then tap Continue setup. You can also restart your phone to apply the change.</string>
+    <string name="bluetooth_scope_root_timeout">Applying the change took too long. Check that root access is allowed, then tap Continue setup, or restart your phone.</string>
+    <string name="bluetooth_scope_root_failed">The change could not be applied automatically. Check root access and tap Continue setup, or restart your phone.</string>
+    <string name="bluetooth_scope_retry">Continue setup</string>
 </resources>

@@ -291,7 +291,7 @@ public class ScreenTest {
 
   private void assertHomeSwitches(View decor) {
     String[] settings = {"combined_qs", CombinedQsSettings.HOME_BATTERY, CombinedQsSettings.MOBILE_ORDER,
-        CombinedQsSettings.PERMISSION_DIALOG};
+        CombinedQsSettings.PERMISSION_DIALOG, CombinedQsSettings.BLUETOOTH_DETAILS};
     for (String key : Protocol.KEYS) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
     for (String key : settings) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
     assertEquals(Protocol.KEYS.length + settings.length, countSwitches(decor));

@@ -132,6 +132,57 @@ public class RootRestartTest {
     assertTrue(shell.destroyed);
   }
 
+  @Test
+  public void bluetoothSettingsRestartTargetsOnlyTheTwoSettingsHosts() throws Exception {
+    FakeShell shell = new FakeShell("0", "OK");
+    assertEquals(RootRestart.Result.REQUESTED,
+        RootRestart.runBluetoothSettings(shell, 1000, 1000, () -> true));
+    String command = shell.commands();
+    assertTrue(command.contains("for oosnp_target in com.android.settings com.oplus.wirelesssettings; do"));
+    assertTrue(command.contains("/system/bin/pidof \"$oosnp_target\""));
+    assertTrue(command.contains("/system/bin/killall -TERM \"$oosnp_target\""));
+    assertFalse(command.contains("com.android.bluetooth"));
+    assertFalse(command.contains("com.android.systemui"));
+    assertFalse(command.contains("permissioncontroller"));
+    assertFalse(command.contains("force-stop"));
+    assertFalse(command.contains("reboot"));
+    assertEquals(1, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void bluetoothSettingsRestartDenialNeverSendsTheProcessList() throws Exception {
+    FakeShell shell = new FakeShell("2000", "OK");
+    assertEquals(RootRestart.Result.DENIED,
+        RootRestart.runBluetoothSettings(shell, 1000, 1000, () -> true));
+    assertFalse(shell.commands().contains("com.android.settings"));
+    assertFalse(shell.commands().contains("killall"));
+    assertEquals(0, shell.restartRequests);
+  }
+
+  @Test
+  public void bluetoothSettingsRestartCancelledDuringRootApprovalCannotRunLater() throws Exception {
+    AtomicBoolean allowed = new AtomicBoolean(true);
+    FakeShell shell = new FakeShell("0", "OK");
+    shell.beforeAuthorizationReply = () -> allowed.set(false);
+    assertEquals(RootRestart.Result.FAILED,
+        RootRestart.runBluetoothSettings(shell, 1000, 1000, allowed::get));
+    assertTrue(shell.probed);
+    assertFalse(shell.commands().contains("com.android.settings"));
+    assertFalse(shell.commands().contains("killall"));
+    assertEquals(0, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
+  @Test
+  public void bluetoothSettingsAlreadyStoppedDoesNotCauseASecondAttempt() throws Exception {
+    FakeShell shell = new FakeShell("0", "NOT_RUNNING");
+    assertEquals(RootRestart.Result.NOT_RUNNING,
+        RootRestart.runBluetoothSettings(shell, 1000, 1000, () -> true));
+    assertEquals(1, shell.restartRequests);
+    assertTrue(shell.destroyed);
+  }
+
   /** Simulates root-manager I/O. Never launches su or evaluates the shell payload. */
   private static final class FakeShell extends Process {
     final PipedInputStream input = new PipedInputStream();

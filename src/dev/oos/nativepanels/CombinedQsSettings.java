@@ -11,8 +11,10 @@ final class CombinedQsSettings {
   static final String HOME_BATTERY = "native_status_icons";
   static final String MOBILE_ORDER = "mobile_type_before_signal";
   static final String PERMISSION_DIALOG = "native_permission_dialog";
+  static final String BLUETOOTH_DETAILS = "native_bluetooth_details";
   static boolean standalone(String key) {
-    return HOME_BATTERY.equals(key) || MOBILE_ORDER.equals(key) || PERMISSION_DIALOG.equals(key);
+    return HOME_BATTERY.equals(key) || MOBILE_ORDER.equals(key) || PERMISSION_DIALOG.equals(key)
+        || BLUETOOTH_DETAILS.equals(key);
   }
 
   static final Uri URI = Uri.parse("content://" + AUTHORITY);

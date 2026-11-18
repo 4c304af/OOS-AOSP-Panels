@@ -41,6 +41,10 @@ public final class MainActivity extends AppCompatActivity {
   private final PermissionDialogScope.Observer permissionScopeObserver = this::updatePermissionScope;
   private MaterialTextView permissionScopeStatus;
   private MaterialButton permissionScopeRetry;
+  private BluetoothDetailsScope bluetoothDetailsScope;
+  private final BluetoothDetailsScope.Observer bluetoothScopeObserver = this::updateBluetoothScope;
+  private MaterialTextView bluetoothScopeStatus;
+  private MaterialButton bluetoothScopeRetry;
 
   @Override
   protected void attachBaseContext(Context base) {
@@ -52,6 +56,7 @@ public final class MainActivity extends AppCompatActivity {
     DynamicColors.applyToActivityIfAvailable(this);
     super.onCreate(state);
     permissionScope = ((PanelApplication)getApplication()).permissionScope();
+    bluetoothDetailsScope = ((PanelApplication)getApplication()).bluetoothDetailsScope();
     getSupportFragmentManager().setFragmentResultListener(
         UpdateRestartPrompt.REQUEST_RESTART, this, (key, result) -> restartSystemUi());
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -78,6 +83,7 @@ public final class MainActivity extends AppCompatActivity {
   @Override
   protected void onDestroy() {
     permissionScope.removeObserver(permissionScopeObserver);
+    bluetoothDetailsScope.removeObserver(bluetoothScopeObserver);
     cancelGroupMotion();
     super.onDestroy();
   }
@@ -86,6 +92,7 @@ public final class MainActivity extends AppCompatActivity {
   public void onResume() {
     super.onResume();
     permissionScope.refresh();
+    bluetoothDetailsScope.refresh();
     request("status", null, false);
   }
 
@@ -97,16 +104,20 @@ public final class MainActivity extends AppCompatActivity {
   @Override protected void onStart() {
     super.onStart();
     permissionScope.observe(permissionScopeObserver);
+    bluetoothDetailsScope.observe(bluetoothScopeObserver);
   }
 
   @Override protected void onStop() {
     permissionScope.removeObserver(permissionScopeObserver);
+    bluetoothDetailsScope.removeObserver(bluetoothScopeObserver);
     super.onStop();
   }
 
   private LinearLayout page() {
     permissionScopeStatus = null;
     permissionScopeRetry = null;
+    bluetoothScopeStatus = null;
+    bluetoothScopeRetry = null;
     LinearLayout content = column();
     content.setPadding(dp(20), dp(12), dp(20), dp(24));
     scroll = new ScrollView(this);
@@ -202,6 +213,9 @@ public final class MainActivity extends AppCompatActivity {
         com.google.android.material.R.attr.colorOnSecondaryContainer);
     feature(page, CombinedQsSettings.PERMISSION_DIALOG, getString(R.string.permission_dialogs), getString(R.string.permission_dialogs_desc),
         R.drawable.ic_privacy, com.google.android.material.R.attr.colorTertiaryContainer,
+        com.google.android.material.R.attr.colorOnTertiaryContainer);
+    feature(page, CombinedQsSettings.BLUETOOTH_DETAILS, getString(R.string.bluetooth_details), getString(R.string.bluetooth_details_desc),
+        R.drawable.ic_bluetooth, com.google.android.material.R.attr.colorTertiaryContainer,
         com.google.android.material.R.attr.colorOnTertiaryContainer);
     oosGroup = column();
     page.addView(oosGroup, new LinearLayout.LayoutParams(-1,-2));
@@ -300,6 +314,7 @@ public final class MainActivity extends AppCompatActivity {
     margin(actions, 16, 0);
     boolean combined = "combined_qs".equals(key);
     boolean permissionDialog = CombinedQsSettings.PERMISSION_DIALOG.equals(key);
+    boolean bluetoothDetails = CombinedQsSettings.BLUETOOTH_DETAILS.equals(key);
     boolean persistent = combined || CombinedQsSettings.standalone(key);
     if (permissionDialog) {
       permissionScopeStatus = label("", 14, false);
@@ -315,6 +330,21 @@ public final class MainActivity extends AppCompatActivity {
       permissionScopeRetry.setOnClickListener(v -> permissionScope.request());
       actions.addView(permissionScopeRetry, new LinearLayout.LayoutParams(0, dp(48), 1));
       updatePermissionScope(permissionScope.state());
+    }
+    if (bluetoothDetails) {
+      bluetoothScopeStatus = label("", 14, false);
+      bluetoothScopeStatus.setTag("bluetooth_scope_status");
+      bluetoothScopeStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+      bluetoothScopeStatus.setPadding(0, dp(12), 0, 0);
+      body.addView(bluetoothScopeStatus);
+      bluetoothScopeRetry = new MaterialButton(this, null,
+          com.google.android.material.R.attr.materialButtonTonalStyle);
+      bluetoothScopeRetry.setText(R.string.bluetooth_scope_retry);
+      bluetoothScopeRetry.setTag("bluetooth_scope_retry");
+      bluetoothScopeRetry.setAllCaps(false);
+      bluetoothScopeRetry.setOnClickListener(v -> bluetoothDetailsScope.request());
+      actions.addView(bluetoothScopeRetry, new LinearLayout.LayoutParams(0, dp(48), 1));
+      updateBluetoothScope(bluetoothDetailsScope.state());
     }
     if (persistent || "notification_cards".equals(key)) {
       actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -364,6 +394,7 @@ public final class MainActivity extends AppCompatActivity {
               Snackbar.make(scroll, R.string.combined_save_failed, Snackbar.LENGTH_LONG).show();
             } else if (combined) updateOosCards(checked, true);
             else if (permissionDialog) permissionScope.request();
+            else if (bluetoothDetails) bluetoothDetailsScope.request();
           } else {
             request("set", key, checked);
           }
@@ -400,6 +431,34 @@ public final class MainActivity extends AppCompatActivity {
         || state == PermissionDialogScope.State.ROOT_TIMEOUT
         || state == PermissionDialogScope.State.ROOT_FAILED;
     permissionScopeRetry.setVisibility(retry ? View.VISIBLE : View.GONE);
+  }
+
+  private void updateBluetoothScope(BluetoothDetailsScope.State state) {
+    if (bluetoothScopeStatus == null || bluetoothScopeRetry == null) return;
+    int message = switch (state) {
+      case CONNECTING -> R.string.bluetooth_scope_connecting;
+      case MISSING -> R.string.bluetooth_scope_missing;
+      case REQUESTING -> R.string.bluetooth_scope_requesting;
+      case ADDED -> R.string.bluetooth_scope_added;
+      case FAILED -> R.string.bluetooth_scope_failed;
+      case UNAVAILABLE -> R.string.bluetooth_scope_unavailable;
+      case ROOT_PENDING -> R.string.bluetooth_scope_root_pending;
+      case READY -> R.string.bluetooth_scope_ready;
+      case ROOT_DENIED -> R.string.bluetooth_scope_root_denied;
+      case ROOT_TIMEOUT -> R.string.bluetooth_scope_root_timeout;
+      case ROOT_FAILED -> R.string.bluetooth_scope_root_failed;
+      case OFF -> 0;
+    };
+    bluetoothScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+    if (message != 0) bluetoothScopeStatus.setText(message);
+    boolean retry = state == BluetoothDetailsScope.State.MISSING
+        || state == BluetoothDetailsScope.State.ADDED
+        || state == BluetoothDetailsScope.State.FAILED
+        || state == BluetoothDetailsScope.State.UNAVAILABLE
+        || state == BluetoothDetailsScope.State.ROOT_DENIED
+        || state == BluetoothDetailsScope.State.ROOT_TIMEOUT
+        || state == BluetoothDetailsScope.State.ROOT_FAILED;
+    bluetoothScopeRetry.setVisibility(retry ? View.VISIBLE : View.GONE);
   }
 
   private void cancelGroupMotion() {

@@ -65,8 +65,8 @@ final class PermissionDialogScope {
   void connect() {
     if (started) return;
     started = true;
-    // libxposed listeners are process-wide and have no unregister operation.
-    XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
+    // The app shares service 101's single framework callback between optional features.
+    ((PanelApplication)context).scopeService().listen(new XposedServiceHelper.OnServiceListener() {
       private XposedService current;
 
       @Override public void onServiceBind(XposedService service) {

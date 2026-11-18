@@ -24,6 +24,14 @@ public final class ModuleEntry extends XposedModule {
       installPart("permission-dialogs", () -> new PermissionDialogHook(this, p.getClassLoader()).install());
       return;
     }
+    if (BluetoothDetailsSettings.SETTINGS_PACKAGE.equals(p.getPackageName())) {
+      installPart("bluetooth-details-theme", () -> new BluetoothDetailsHook(this, p.getClassLoader()).install());
+      return;
+    }
+    if (BluetoothDetailsSettings.WIRELESS_PACKAGE.equals(p.getPackageName())) {
+      installPart("wireless-bluetooth-details", () -> new WirelessBluetoothDetailsHook(this, p.getClassLoader()).install());
+      return;
+    }
     if (Protocol.TARGET.equals(p.getPackageName())) install(p.getClassLoader());
   }
 
