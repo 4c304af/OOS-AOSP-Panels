@@ -10,6 +10,10 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.view.View;
 import android.view.ViewGroup;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -128,5 +132,176 @@ public class AboutPhoneRowsTest {
     assertFalse(AboutPhoneHook.matchesScreen(AboutPhoneHook.FRAGMENT, "bluetooth_screen"));
     assertFalse(AboutPhoneHook.matchesScreen(null, AboutPhoneHook.SCREEN));
     assertFalse(AboutPhoneHook.matchesScreen(AboutPhoneHook.FRAGMENT, null));
+  }
+
+  @Test public void anonymousCameraCategoryIsTransparentToActualAdapterNeighbors() throws Exception {
+    Fixture f = new Fixture();
+    Pref model = new Pref("device_market_name_header", f.screen);
+    Pref cpu = new Pref("cpu_info", f.screen);
+    Pref ram = new Pref("ram_info", f.screen);
+    Category cameraContainer = new Category(null, f.screen);
+    Pref camera = new Pref("camera_info", cameraContainer);
+    Pref processor = new Pref("processor_detail", cameraContainer);
+    cameraContainer.children.addAll(List.of(camera, processor));
+    Pref battery = new Pref("battery_and_charge_info", f.screen);
+    Pref display = new Pref("screen_physics_size", f.screen);
+    // processor_detail is unavailable on this device: it remains in the real
+    // hierarchy, while only camera_info appears in the adapter's visible list.
+    f.adapter.visible.addAll(List.of(model, cpu, ram, cameraContainer, camera, battery, display));
+    assertTrue(f.item(3).hardwareContainer());
+    assertSame(f.screen, f.item(4).parent());
+    assertEquals(AboutPhoneRows.FIRST, f.position(0));
+    for (int position : new int[]{1, 2, 4, 5}) assertEquals(AboutPhoneRows.MIDDLE, f.position(position));
+    assertEquals(AboutPhoneRows.LAST, f.position(6));
+    assertFalse(AboutPhoneRows.sectionBreak(f.item(2), f.neighbor(2, 1)));
+    // Removing another unsupported row cannot recreate the old camera-only pill.
+    f.adapter.visible.remove(cpu);
+    assertEquals(AboutPhoneRows.MIDDLE, f.position(1));
+    assertEquals(AboutPhoneRows.MIDDLE, f.position(3));
+    // An OOS variant that displays processor_detail joins it to the same group.
+    f.adapter.visible.add(4, processor);
+    assertEquals(AboutPhoneRows.MIDDLE, f.position(3));
+    assertEquals(AboutPhoneRows.MIDDLE, f.position(4));
+  }
+
+  @Test public void namedTitledOrUnrelatedCategoriesKeepTheirBoundaries() throws Exception {
+    Fixture f = new Fixture();
+    Pref ram = new Pref("ram_info", f.screen);
+    Category cameraContainer = new Category(null, f.screen);
+    Pref camera = new Pref("camera_info", cameraContainer);
+    cameraContainer.children.add(camera);
+    Pref battery = new Pref("battery_and_charge_info", f.screen);
+    f.adapter.visible.addAll(List.of(ram, cameraContainer, camera, battery));
+    cameraContainer.title = "Camera information";
+    assertFalse(f.item(1).hardwareContainer());
+    assertSame(cameraContainer, f.item(2).parent());
+    assertEquals(AboutPhoneRows.SINGLE, f.position(0));
+    assertEquals(AboutPhoneRows.SINGLE, f.position(2));
+    cameraContainer.title = null;
+    cameraContainer.key = "named_hardware_group";
+    assertFalse(f.item(1).hardwareContainer());
+    cameraContainer.key = null;
+    cameraContainer.children.add(new Pref("version_info", cameraContainer));
+    assertFalse(f.item(1).hardwareContainer());
+    cameraContainer.children.remove(1);
+    f.screen.key = "other_settings_screen";
+    assertFalse(f.item(1).hardwareContainer());
+    assertSame(cameraContainer, f.item(2).parent());
+  }
+
+  @Test public void storageToHardwareUsesASectionGapWithoutSplittingNameAndStorage() throws Exception {
+    Fixture f = new Fixture();
+    Category nameStorage = new Category("about_device_name_storage_category", f.screen);
+    Pref name = new Pref("device_name", nameStorage), storage = new Pref("device_storage", nameStorage);
+    nameStorage.children.addAll(List.of(name, storage));
+    Pref model = new Pref("device_market_name_header", f.screen);
+    Pref cpu = new Pref("cpu_info", f.screen);
+    f.adapter.visible.addAll(List.of(nameStorage, name, storage, model, cpu));
+    assertFalse(AboutPhoneRows.sectionBreak(f.item(1), f.neighbor(1, 1)));
+    assertTrue(AboutPhoneRows.sectionBreak(f.item(2), f.neighbor(2, 1)));
+    assertEquals(AboutPhoneRows.LAST, f.position(2));
+    assertEquals(AboutPhoneRows.FIRST, f.position(3));
+    assertFalse(AboutPhoneRows.sectionBreak(f.item(3), f.neighbor(3, 1)));
+    assertFalse(AboutPhoneRows.sectionBreak(f.item(4), new AboutPhoneRows.Item("legal", f.screen, true)));
+    View view = new View(RuntimeEnvironment.getApplication());
+    ViewGroup.MarginLayoutParams params = new ViewGroup.MarginLayoutParams(300, 140);
+    view.setLayoutParams(params);
+    AboutPhoneRows.spacing(view, 12);
+    assertEquals(12, params.bottomMargin);
+    // The same holder subsequently binds an ordinary inner row, without a stale gap.
+    AboutPhoneRows.spacing(view, 2);
+    assertEquals(2, params.bottomMargin);
+  }
+
+  @Test public void zeroHeightCameraContainerRestoresItsLayoutBeforeReuse() {
+    View view = new View(RuntimeEnvironment.getApplication());
+    ViewGroup.MarginLayoutParams params = new ViewGroup.MarginLayoutParams(300, ViewGroup.LayoutParams.WRAP_CONTENT);
+    params.setMargins(5, 16, 7, 4);
+    view.setLayoutParams(params);
+    view.setPadding(9, 12, 11, 3);
+    view.setMinimumHeight(48);
+    AboutPhoneRows.CollapsedCategory original = AboutPhoneRows.CollapsedCategory.collapse(view);
+    assertNotNull(original);
+    assertEquals(0, params.height);
+    assertEquals(0, params.topMargin);
+    assertEquals(0, params.bottomMargin);
+    assertEquals(12, view.getPaddingTop());
+    assertEquals(48, view.getMinimumHeight());
+    original.restore(view);
+    assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, params.height);
+    assertEquals(16, params.topMargin);
+    assertEquals(4, params.bottomMargin);
+    assertEquals(5, params.leftMargin);
+    assertEquals(7, params.rightMargin);
+    // Native bind may now change dimensions for a titled category. A later
+    // collapse/restore captures those values instead of restoring the first holder's.
+    params.height = 60;
+    params.topMargin = 24;
+    AboutPhoneRows.CollapsedCategory next = AboutPhoneRows.CollapsedCategory.collapse(view);
+    next.restore(view);
+    assertEquals(60, params.height);
+    assertEquals(24, params.topMargin);
+  }
+
+  public static class Pref {
+    String key;
+    CharSequence title;
+    final Group parent;
+    Pref(String key, Group parent) { this.key = key; this.parent = parent; }
+    public String getKey() { return key; }
+    public CharSequence getTitle() { return title; }
+    public Group getParent() { return parent; }
+  }
+
+  public static class Group extends Pref {
+    final List<Pref> children = new ArrayList<>();
+    Group(String key, Group parent) { super(key, parent); }
+    public int getPreferenceCount() { return children.size(); }
+    public Pref getPreference(int position) { return children.get(position); }
+  }
+
+  public static class Category extends Group {
+    Category(String key, Group parent) { super(key, parent); }
+  }
+
+  public static class Adapter {
+    final List<Pref> visible = new ArrayList<>();
+    public int getItemCount() { return visible.size(); }
+    public Pref getItem(int position) { return visible.get(position); }
+  }
+
+  private static final class Fixture {
+    final AboutPhoneHook hook = new AboutPhoneHook(null, AboutPhoneRowsTest.class.getClassLoader());
+    final Group screen = new Group(AboutPhoneHook.SCREEN, null);
+    final Adapter adapter = new Adapter();
+    final Method item, neighbor;
+    Fixture() throws Exception {
+      set("categoryClass", Category.class);
+      set("getKey", Pref.class.getMethod("getKey"));
+      set("getTitle", Pref.class.getMethod("getTitle"));
+      set("getParent", Pref.class.getMethod("getParent"));
+      set("getPreference", Group.class.getMethod("getPreference", int.class));
+      set("getPreferenceCount", Group.class.getMethod("getPreferenceCount"));
+      set("getItem", Adapter.class.getMethod("getItem", int.class));
+      set("getItemCount", Adapter.class.getMethod("getItemCount"));
+      item = AboutPhoneHook.class.getDeclaredMethod("item", Object.class, int.class);
+      neighbor = AboutPhoneHook.class.getDeclaredMethod("neighbor", Object.class, int.class, int.class);
+      item.setAccessible(true);
+      neighbor.setAccessible(true);
+    }
+    void set(String name, Object value) throws Exception {
+      Field field = AboutPhoneHook.class.getDeclaredField(name);
+      field.setAccessible(true);
+      field.set(hook, value);
+    }
+    AboutPhoneRows.Item item(int position) throws Exception {
+      return (AboutPhoneRows.Item)item.invoke(hook, adapter, position);
+    }
+    AboutPhoneRows.Item neighbor(int position, int direction) throws Exception {
+      return (AboutPhoneRows.Item)neighbor.invoke(hook, adapter, position, direction);
+    }
+    int position(int position) throws Exception {
+      return AboutPhoneRows.position(neighbor(position, -1), item(position), neighbor(position, 1));
+    }
   }
 }

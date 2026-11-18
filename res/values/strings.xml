@@ -24,8 +24,8 @@
     <string name="permission_scope_connecting">Connecting to LSPosed…</string>
     <string name="permission_scope_requesting">Approve the LSPosed prompt to add Permission Controller. If no prompt appears, check your notifications.</string>
     <string name="permission_scope_missing">Permission Controller still needs to be added. Tap Continue setup, then approve the LSPosed and root prompts to apply the change automatically.</string>
-    <string name="permission_scope_added">Permission Controller has been added. If you still see the old dialog, tap Continue setup and allow root access to reapply without restarting your phone.</string>
-    <string name="permission_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Permission Controller in this module’s scope in LSPosed, then come back to continue setup.</string>
+    <string name="permission_scope_added">Permission Controller is included in the module’s LSPosed scope.</string>
+    <string name="permission_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Permission Controller in this module’s scope in LSPosed, then return here and turn this switch off and on again to apply.</string>
     <string name="permission_scope_unavailable">LSPosed is not connected. Enable this module, then reopen this app. If it still cannot connect, select Permission Controller in the module’s scope manually and restart your phone.</string>
     <string name="permission_scope_root_pending">Applying the change. If your root manager shows a prompt, allow this module to use root access.</string>
     <string name="permission_scope_ready">Setup complete. The next time an app asks for camera, location or other permissions, it will use the Android dialog.</string>
@@ -154,8 +154,8 @@
     <string name="bluetooth_scope_connecting">Connecting to LSPosed…</string>
     <string name="bluetooth_scope_requesting">Approve the LSPosed prompt to add Settings and Wireless Settings. If no prompt appears, check your notifications.</string>
     <string name="bluetooth_scope_missing">Settings and Wireless Settings need to be in the module’s scope. Tap Continue setup and follow the LSPosed and root prompts.</string>
-    <string name="bluetooth_scope_added">Settings and Wireless Settings have been added. Tap Continue setup to apply, then reopen the Bluetooth device page.</string>
-    <string name="bluetooth_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Settings and Wireless Settings in this module’s scope in LSPosed, then return here.</string>
+    <string name="bluetooth_scope_added">Settings and Wireless Settings are included in the module’s LSPosed scope.</string>
+    <string name="bluetooth_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Settings and Wireless Settings in this module’s scope in LSPosed, then return here and turn this switch off and on again to apply.</string>
     <string name="bluetooth_scope_unavailable">LSPosed is not connected. Enable this module and reopen this app. You can also select Settings and Wireless Settings in its scope manually, then restart your phone.</string>
     <string name="bluetooth_scope_root_pending">Applying the change to Settings. Allow root access if prompted. Bluetooth connections will stay active.</string>
     <string name="bluetooth_scope_ready">Setup complete. Reopen a Bluetooth device’s details from Settings or Quick Settings.</string>
@@ -168,8 +168,8 @@
     <string name="about_scope_connecting">Connecting to LSPosed…</string>
     <string name="about_scope_requesting">Approve the LSPosed prompt to add Settings. If no prompt appears, check your notifications.</string>
     <string name="about_scope_missing">Settings needs to be in the module’s scope. Tap Continue setup and approve the LSPosed and root prompts.</string>
-    <string name="about_scope_added">Settings has been added. Tap Continue setup to apply, then reopen About phone.</string>
-    <string name="about_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Settings in this module’s scope in LSPosed, then return here.</string>
+    <string name="about_scope_added">Settings is included in the module’s LSPosed scope.</string>
+    <string name="about_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Settings in this module’s scope in LSPosed, then return here and turn this switch off and on again to apply.</string>
     <string name="about_scope_unavailable">LSPosed is not connected. Enable this module and reopen this app. You can also select Settings in its scope manually, then restart your phone.</string>
     <string name="about_scope_root_pending">Applying the change to Settings. Allow root access if prompted.</string>
     <string name="about_scope_ready">Setup complete. Reopen About phone in Settings.</string>

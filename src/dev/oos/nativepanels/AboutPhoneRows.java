@@ -4,6 +4,7 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.view.View;
 import android.view.ViewGroup;
+import java.util.List;
 import java.util.Set;
 
 /** Section boundaries use the adapter's visible rows, not the XML's unfiltered indexes. */
@@ -13,7 +14,20 @@ final class AboutPhoneRows {
       "ram_info", "camera_info", "processor_detail", "battery_and_charge_info",
       "screen_physics_size", "game_architecture", "security_chip_info", "tidal_architecture");
 
-  record Item(String key, Object parent, boolean category) {}
+  record Item(String key, Object parent, boolean category, boolean hardwareContainer) {
+    Item(String key, Object parent, boolean category) { this(key, parent, category, false); }
+  }
+
+  static boolean hardwareContainer(String key, CharSequence title, List<String> children) {
+    if ((key != null && !key.isEmpty()) || (title != null && title.length() != 0)
+        || children.isEmpty() || children.size() > 2) return false;
+    // This is the anonymous category in device_info.xml, not an arbitrary empty
+    // heading. Its children remain real preferences with their original controllers.
+    for (String child : children) {
+      if (!"camera_info".equals(child) && !"processor_detail".equals(child)) return false;
+    }
+    return true;
+  }
 
   static boolean card(Item item) {
     return item != null && !item.category() && !"key_ota_update".equals(item.key());
@@ -22,8 +36,8 @@ final class AboutPhoneRows {
   static boolean joined(Item first, Item second) {
     if (!card(first) || !card(second) || first.parent() == null || first.parent() != second.parent())
       return false;
-    // Root-level hardware is one section. Name/storage and the legal/version groups
-    // already have real PreferenceCategory parents; do not join hardware to those.
+    // The verified anonymous camera container is normalized to the screen by the
+    // caller. All other category identities continue to be real section boundaries.
     return hardware(first.key()) == hardware(second.key());
   }
 
@@ -32,6 +46,12 @@ final class AboutPhoneRows {
   static int position(Item before, Item current, Item after) {
     boolean top = joined(before, current), bottom = joined(current, after);
     return top ? (bottom ? MIDDLE : LAST) : (bottom ? FIRST : SINGLE);
+  }
+
+  static boolean sectionBreak(Item current, Item after) {
+    // A real category supplies its own heading/spacing. Only adjacent cards from
+    // distinct sections need an extra gap (notably storage -> device model).
+    return card(current) && card(after) && !joined(current, after);
   }
 
   static void radii(float[] result, int position, float outer, float inner) {
@@ -56,6 +76,26 @@ final class AboutPhoneRows {
     params.topMargin = 0;
     params.bottomMargin = gap;
     view.setLayoutParams(params);
+  }
+
+  record CollapsedCategory(int height, int top, int bottom) {
+    static CollapsedCategory collapse(View view) {
+      if (!(view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams params)) return null;
+      CollapsedCategory original = new CollapsedCategory(params.height, params.topMargin, params.bottomMargin);
+      params.height = 0;
+      params.topMargin = 0;
+      params.bottomMargin = 0;
+      view.setLayoutParams(params);
+      return original;
+    }
+
+    void restore(View view) {
+      if (!(view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams params)) return;
+      params.height = height;
+      params.topMargin = top;
+      params.bottomMargin = bottom;
+      view.setLayoutParams(params);
+    }
   }
 
   private AboutPhoneRows() {}

@@ -284,7 +284,7 @@ public class BluetoothDetailsScopeTest {
     }
   }
 
-  @Test public void savedEnabledScreenDoesNotPromptUntilContinueSetup() {
+  @Test public void savedEnabledScreenHidesSetupUntilAnExplicitApplyFails() {
     setEnabled(true);
     service.packages = List.of(SETTINGS, WIRELESS);
     useApplicationScope();
@@ -294,8 +294,9 @@ public class BluetoothDetailsScopeTest {
       ShadowLooper.idleMainLooper();
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
-      assertEquals(View.VISIBLE, retry(activity).getVisibility());
-      retry(activity).performClick();
+      assertEquals(View.GONE, retry(activity).getVisibility());
+      toggle(activity).performClick();
+      toggle(activity).performClick();
       assertEquals(1, restarter.jobs.size());
       restarter.finish(0, RootRestart.Result.DENIED);
       ShadowLooper.idleMainLooper();
@@ -304,6 +305,37 @@ public class BluetoothDetailsScopeTest {
       toggle(activity).performClick();
       assertEquals(View.GONE, status(activity).getVisibility());
       assertEquals(View.GONE, retry(activity).getVisibility());
+    }
+  }
+
+  @Test public void aFreshControllerAfterSuccessfulApplyDoesNotAskToContinueSetup() {
+    service.packages = List.of(SETTINGS, WIRELESS);
+    scope.bind(service);
+    setEnabled(true);
+    scope.request();
+    restarter.finish(0, RootRestart.Result.REQUESTED);
+    ShadowLooper.idleMainLooper();
+    assertEquals(READY, scope.state());
+
+    // The saved switch and framework scope survive app death; in-memory READY does not.
+    restarter = new FakeRestarter();
+    scope = new BluetoothDetailsScope(context, restarter);
+    useApplicationScope();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup().visible()) {
+      MainActivity activity = controller.get();
+      ShadowLooper.idleMainLooper();
+      assertEquals(ADDED, scope.state());
+      assertTrue(toggle(activity).isChecked());
+      assertEquals(activity.getString(R.string.bluetooth_scope_added), status(activity).getText().toString());
+      assertEquals(View.GONE, retry(activity).getVisibility());
+      assertTrue(service.requests.isEmpty());
+      assertTrue(restarter.jobs.isEmpty());
+      controller.recreate();
+      ShadowLooper.idleMainLooper();
+      assertEquals(View.GONE, retry(controller.get()).getVisibility());
+      assertTrue(service.requests.isEmpty());
+      assertTrue(restarter.jobs.isEmpty());
     }
   }
 

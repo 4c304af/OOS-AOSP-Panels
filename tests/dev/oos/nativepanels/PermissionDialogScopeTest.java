@@ -422,7 +422,7 @@ public class PermissionDialogScopeTest {
     }
   }
 
-  @Test public void existingScopeScreenAppliesOnlyOnUserActionAndShowsRootRetry() {
+  @Test public void existingScopeScreenHidesSetupUntilAnExplicitApplyFails() {
     service.packages = List.of(PermissionDialogHook.PACKAGE);
     setEnabled(true);
     useApplicationScope();
@@ -432,10 +432,11 @@ public class PermissionDialogScopeTest {
       ShadowLooper.idleMainLooper();
       assertEquals(activity.getString(R.string.permission_scope_added),
           status(activity).getText().toString());
-      assertEquals(View.VISIBLE, retry(activity).getVisibility());
+      assertEquals(View.GONE, retry(activity).getVisibility());
       assertTrue(restarter.jobs.isEmpty());
 
-      retry(activity).performClick();
+      permissionSwitch(activity).performClick();
+      permissionSwitch(activity).performClick();
       assertEquals(1, restarter.jobs.size());
       assertTrue(service.requests.isEmpty());
       assertEquals(activity.getString(R.string.permission_scope_root_pending),
@@ -453,6 +454,37 @@ public class PermissionDialogScopeTest {
       assertEquals(activity.getString(R.string.permission_scope_ready),
           status(activity).getText().toString());
       assertEquals(View.GONE, retry(activity).getVisibility());
+    }
+  }
+
+  @Test public void aFreshControllerAfterSuccessfulApplyDoesNotAskToContinueSetup() {
+    service.packages = List.of(PermissionDialogHook.PACKAGE);
+    scope.bind(service);
+    setEnabled(true);
+    scope.request();
+    restarter.finish(0, RootRestart.Result.REQUESTED);
+    ShadowLooper.idleMainLooper();
+    assertEquals(READY, scope.state());
+
+    // The saved switch and framework scope survive app death; in-memory READY does not.
+    restarter = new FakeRestarter();
+    scope = new PermissionDialogScope(context, restarter);
+    useApplicationScope();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup().visible()) {
+      MainActivity activity = controller.get();
+      ShadowLooper.idleMainLooper();
+      assertEquals(ADDED, scope.state());
+      assertTrue(permissionSwitch(activity).isChecked());
+      assertEquals(activity.getString(R.string.permission_scope_added), status(activity).getText().toString());
+      assertEquals(View.GONE, retry(activity).getVisibility());
+      assertTrue(service.requests.isEmpty());
+      assertTrue(restarter.jobs.isEmpty());
+      controller.recreate();
+      ShadowLooper.idleMainLooper();
+      assertEquals(View.GONE, retry(controller.get()).getVisibility());
+      assertTrue(service.requests.isEmpty());
+      assertTrue(restarter.jobs.isEmpty());
     }
   }
 

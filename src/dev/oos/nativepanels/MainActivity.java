@@ -455,7 +455,6 @@ public final class MainActivity extends AppCompatActivity {
     permissionScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
     if (message != 0) permissionScopeStatus.setText(message);
     boolean retry = state == PermissionDialogScope.State.MISSING
-        || state == PermissionDialogScope.State.ADDED
         || state == PermissionDialogScope.State.FAILED
         || state == PermissionDialogScope.State.UNAVAILABLE
         || state == PermissionDialogScope.State.ROOT_DENIED
@@ -483,7 +482,6 @@ public final class MainActivity extends AppCompatActivity {
     bluetoothScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
     if (message != 0) bluetoothScopeStatus.setText(message);
     boolean retry = state == BluetoothDetailsScope.State.MISSING
-        || state == BluetoothDetailsScope.State.ADDED
         || state == BluetoothDetailsScope.State.FAILED
         || state == BluetoothDetailsScope.State.UNAVAILABLE
         || state == BluetoothDetailsScope.State.ROOT_DENIED
@@ -511,7 +509,6 @@ public final class MainActivity extends AppCompatActivity {
     aboutScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
     if (message != 0) aboutScopeStatus.setText(message);
     boolean retry = state == AboutPhoneScope.State.MISSING
-        || state == AboutPhoneScope.State.ADDED
         || state == AboutPhoneScope.State.FAILED
         || state == AboutPhoneScope.State.UNAVAILABLE
         || state == AboutPhoneScope.State.ROOT_DENIED

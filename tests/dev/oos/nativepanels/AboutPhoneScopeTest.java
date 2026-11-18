@@ -138,7 +138,7 @@ public class AboutPhoneScopeTest {
     assertEquals(READY, scope.state());
   }
 
-  @Test public void savedEnabledScreenAppliesOnlyAfterContinueSetup() {
+  @Test public void savedEnabledScreenHidesSetupUntilAnExplicitApplyFails() {
     setEnabled(true);
     service.packages = List.of(SETTINGS);
     useApplicationScope();
@@ -149,8 +149,9 @@ public class AboutPhoneScopeTest {
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
       assertEquals(activity.getString(R.string.about_scope_added), status(activity).getText().toString());
-      assertEquals(View.VISIBLE, retry(activity).getVisibility());
-      retry(activity).performClick();
+      assertEquals(View.GONE, retry(activity).getVisibility());
+      toggle(activity).performClick();
+      toggle(activity).performClick();
       assertEquals(1, restarter.jobs.size());
       restarter.finish(0, RootRestart.Result.DENIED);
       ShadowLooper.idleMainLooper();
@@ -191,6 +192,37 @@ public class AboutPhoneScopeTest {
       restarter.finish(0, RootRestart.Result.REQUESTED);
       ShadowLooper.idleMainLooper();
       assertEquals(controller.get().getString(R.string.about_scope_ready), status(controller.get()).getText().toString());
+    }
+  }
+
+  @Test public void aFreshControllerAfterSuccessfulApplyDoesNotAskToContinueSetup() {
+    service.packages = List.of(SETTINGS);
+    scope.bind(service);
+    setEnabled(true);
+    scope.request();
+    restarter.finish(0, RootRestart.Result.REQUESTED);
+    ShadowLooper.idleMainLooper();
+    assertEquals(READY, scope.state());
+
+    // The saved switch and framework scope survive app death; in-memory READY does not.
+    restarter = new FakeRestarter();
+    scope = new AboutPhoneScope(context, restarter);
+    useApplicationScope();
+    try (ActivityController<MainActivity> controller =
+        Robolectric.buildActivity(MainActivity.class).setup().visible()) {
+      MainActivity activity = controller.get();
+      ShadowLooper.idleMainLooper();
+      assertEquals(ADDED, scope.state());
+      assertTrue(toggle(activity).isChecked());
+      assertEquals(activity.getString(R.string.about_scope_added), status(activity).getText().toString());
+      assertEquals(View.GONE, retry(activity).getVisibility());
+      assertTrue(service.requests.isEmpty());
+      assertTrue(restarter.jobs.isEmpty());
+      controller.recreate();
+      ShadowLooper.idleMainLooper();
+      assertEquals(View.GONE, retry(controller.get()).getVisibility());
+      assertTrue(service.requests.isEmpty());
+      assertTrue(restarter.jobs.isEmpty());
     }
   }
 

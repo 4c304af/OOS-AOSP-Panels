@@ -24,8 +24,8 @@
     <string name="permission_scope_connecting">正在連接 LSPosed…</string>
     <string name="permission_scope_requesting">請依照 LSPosed 的提示，允許加入「權限控制器」。若沒有看到提示，請查看通知欄。</string>
     <string name="permission_scope_missing">還需要加入「權限控制器」。點「繼續設定」，依序同意 LSPosed 與 root 提示，模組就會自動套用。</string>
-    <string name="permission_scope_added">已加入「權限控制器」。如果仍是舊樣式，點「繼續設定」並允許 root 授權，即可重新套用，不用重啟手機。</string>
-    <string name="permission_scope_failed">尚未完成設定。點「繼續設定」重試，或先到 LSPosed 中此模組的作用域勾選「權限控制器」，再回來繼續設定。</string>
+    <string name="permission_scope_added">「權限控制器」作用域已設定。</string>
+    <string name="permission_scope_failed">尚未完成設定。點「繼續設定」重試，或到 LSPosed 中此模組的作用域勾選「權限控制器」，再回來關閉並重新開啟此開關以套用。</string>
     <string name="permission_scope_unavailable">尚未連上 LSPosed。請啟用此模組，再重新開啟本 App。若仍無法連線，可手動勾選「權限控制器」作用域後重啟手機。</string>
     <string name="permission_scope_root_pending">正在套用設定。若 root 管理器跳出提示，請允許本模組取得 root 權限。</string>
     <string name="permission_scope_ready">設定完成。下次 App 詢問相機、位置等權限時，就會使用原生視窗。</string>
@@ -154,8 +154,8 @@
     <string name="bluetooth_scope_connecting">正在連接 LSPosed…</string>
     <string name="bluetooth_scope_requesting">請依照 LSPosed 的提示，允許加入「設定」與「無線設定」。若沒有看到提示，請查看通知欄。</string>
     <string name="bluetooth_scope_missing">需要將「設定」與「無線設定」加入作用域。點「繼續設定」，依序同意 LSPosed 與 root 提示。</string>
-    <string name="bluetooth_scope_added">已加入「設定」與「無線設定」。點「繼續設定」套用，再重新開啟藍牙裝置頁面。</string>
-    <string name="bluetooth_scope_failed">尚未完成設定。點「繼續設定」重試，或先到 LSPosed 中此模組的作用域勾選「設定」與「無線設定」，再回來繼續。</string>
+    <string name="bluetooth_scope_added">「設定」與「無線設定」作用域已設定。</string>
+    <string name="bluetooth_scope_failed">尚未完成設定。點「繼續設定」重試，或到 LSPosed 中此模組的作用域勾選「設定」與「無線設定」，再回來關閉並重新開啟此開關以套用。</string>
     <string name="bluetooth_scope_unavailable">尚未連上 LSPosed。請啟用此模組，再重新開啟本 App。也可以手動勾選「設定」與「無線設定」作用域後重啟手機。</string>
     <string name="bluetooth_scope_root_pending">正在套用至設定 App。若 root 管理器跳出提示，請允許授權。藍牙連線會保持。</string>
     <string name="bluetooth_scope_ready">設定完成。請從設定或快速設定重新開啟藍牙裝置詳情。</string>
@@ -168,8 +168,8 @@
     <string name="about_scope_connecting">正在連接 LSPosed…</string>
     <string name="about_scope_requesting">請依照 LSPosed 的提示，允許加入「設定」。若沒有看到提示，請查看通知欄。</string>
     <string name="about_scope_missing">需要將「設定」加入作用域。點「繼續設定」，依序同意 LSPosed 與 root 提示。</string>
-    <string name="about_scope_added">已加入「設定」。點「繼續設定」套用，再重新開啟「關於本機」。</string>
-    <string name="about_scope_failed">尚未完成設定。點「繼續設定」重試，或先到 LSPosed 中此模組的作用域勾選「設定」，再回來繼續。</string>
+    <string name="about_scope_added">「設定」作用域已設定。</string>
+    <string name="about_scope_failed">尚未完成設定。點「繼續設定」重試，或到 LSPosed 中此模組的作用域勾選「設定」，再回來關閉並重新開啟此開關以套用。</string>
     <string name="about_scope_unavailable">尚未連上 LSPosed。請啟用此模組，再重新開啟本 App。也可以手動勾選「設定」作用域後重啟手機。</string>
     <string name="about_scope_root_pending">正在套用至設定 App。若 root 管理器跳出提示，請允許授權。</string>
     <string name="about_scope_ready">設定完成。請重新開啟設定中的「關於本機」。</string>

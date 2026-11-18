@@ -8,7 +8,10 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import android.view.WindowInsets;
 import io.github.libxposed.api.XposedInterface;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Executable;
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -27,6 +30,9 @@ final class BluetoothDetailsHook {
   // Values never hold the Activity. Reading the switch is restricted to page creation,
   // not the preference adapter's bind/draw path or every isExpressiveTheme query.
   private final Map<Activity, Integer> owned = Collections.synchronizedMap(new WeakHashMap<>());
+  // A strong value here would retain its View, and thereby its weak Activity key.
+  private final Map<Activity, WeakReference<BluetoothDetailsBottomPadding>> bottomPadding =
+      Collections.synchronizedMap(new WeakHashMap<>());
 
   BluetoothDetailsHook(ModuleEntry module, ClassLoader loader) {
     this.module = module;
@@ -100,8 +106,13 @@ final class BluetoothDetailsHook {
     module.hook(destroy).setId("native-panels:bluetooth-details-destroy")
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
           try { return c.proceed(); }
-          finally { owned.remove(c.getThisObject()); }
+          finally {
+            clearBottomPadding((Activity)c.getThisObject());
+            owned.remove(c.getThisObject());
+          }
         });
+
+    installBottomPadding(base, adapter, fragmentContext);
 
     // The OEM's constant-false provider and small helper can have been inlined
     // before LSPosed loads. Retain the original constructors, adapters and callbacks.
@@ -119,6 +130,95 @@ final class BluetoothDetailsHook {
         "getBackgroundRes");
     for (java.lang.reflect.Constructor<?> constructor : buttons.getDeclaredConstructors()) deoptimize(constructor);
     for (java.lang.reflect.Constructor<?> constructor : adapter.getDeclaredConstructors()) deoptimize(constructor);
+  }
+
+  private void installBottomPadding(Class<?> base, Class<?> adapter, Method fragmentContext)
+      throws ReflectiveOperationException {
+    Class<?> details = type(FRAGMENT);
+    Method created = details.getDeclaredMethod("onViewCreated", View.class, Bundle.class);
+    Method destroyed = Reflect.method(details, "onDestroyView");
+    Method getList = Reflect.method(details, "getListView");
+    Method getAdapter = type("androidx.recyclerview.widget.RecyclerView").getMethod("getAdapter");
+    Method position = adapter.getMethod("getPreferenceAdapterPosition", String.class);
+    Method footerHeight = type("com.oplus.settings.utils.SettingsUtils").getDeclaredMethod("getFootViewHeight", Activity.class);
+    Method insets = base.getDeclaredMethod("lambda$onCreate$0", View.class, WindowInsets.class);
+    Method hierarchy = adapter.getDeclaredMethod("onPreferenceHierarchyChange", type("androidx.preference.Preference"));
+    Method preferenceContext = type("androidx.preference.Preference").getMethod("getContext");
+    if (footerHeight.getReturnType() != int.class || position.getReturnType() != int.class
+        || insets.getReturnType() != WindowInsets.class)
+      throw new NoSuchMethodException("Unsupported Bluetooth Settings footer contract");
+
+    module.hook(created).setId("native-panels:bluetooth-details-scroll-end")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          Object result = c.proceed();
+          Object screen = c.getThisObject();
+          Context context = (Context)fragmentContext.invoke(screen);
+          if (!nativePreferenceSpacing(screen.getClass().getName(), context)) return result;
+          Activity activity = activity(context);
+          View list = (View)getList.invoke(screen);
+          if (list == null) return result;
+          clearBottomPadding(activity);
+          WeakReference<Activity> owner = new WeakReference<>(activity);
+          BluetoothDetailsBottomPadding padding = new BluetoothDetailsBottomPadding(list, () -> {
+            Activity current = owner.get();
+            if (current == null || !owned.containsKey(current)) return 0;
+            try {
+              Object currentAdapter = getAdapter.invoke(list);
+              if (currentAdapter == null) return -1;
+              // The flattened adapter accounts for invisible parent categories.
+              // Some device layouts retain the OEM footer; never add it twice.
+              if ((int)position.invoke(currentAdapter, "oplus_preference_footer") >= 0) return 0;
+              // This OEM method includes navigation height only for gestures.
+              // Three-button navigation is already handled by the parent listener;
+              // IME height and the original inset dispatch remain untouched.
+              return Math.max(0, (int)footerHeight.invoke(null, current));
+            } catch (ReflectiveOperationException | RuntimeException unavailable) { return -1; }
+          });
+          bottomPadding.put(activity, new WeakReference<>(padding));
+          return result;
+        });
+    module.hook(destroyed).setId("native-panels:bluetooth-details-scroll-end-release")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          if (FRAGMENT.equals(c.getThisObject().getClass().getName())) {
+            Activity activity = activity((Context)fragmentContext.invoke(c.getThisObject()));
+            WeakReference<BluetoothDetailsBottomPadding> reference = bottomPadding.get(activity);
+            BluetoothDetailsBottomPadding padding = reference == null ? null : reference.get();
+            if (padding != null && padding.forList((View)getList.invoke(c.getThisObject())))
+              clearBottomPadding(activity);
+          }
+          return c.proceed();
+        });
+    module.hook(insets).setId("native-panels:bluetooth-details-scroll-end-insets")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          Object result = c.proceed();
+          refreshBottomPadding((Activity)c.getThisObject());
+          return result;
+        });
+    module.hook(hierarchy).setId("native-panels:bluetooth-details-scroll-end-layout")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          Object result = c.proceed();
+          refreshBottomPadding(activity((Context)preferenceContext.invoke(c.getArg(0))));
+          return result;
+        });
+    deoptimize(created);
+    deoptimize(destroyed);
+    deoptimize(insets);
+    // Verified direct caller of the synthetic inset method in this OOS APK.
+    try { deoptimizeNamed(type("com.android.settings.core.j"), "onApplyWindowInsets"); }
+    catch (ClassNotFoundException renamed) { /* The named native method remains hooked. */ }
+    deoptimize(hierarchy);
+  }
+
+  private void refreshBottomPadding(Activity activity) {
+    WeakReference<BluetoothDetailsBottomPadding> reference = bottomPadding.get(activity);
+    BluetoothDetailsBottomPadding padding = reference == null ? null : reference.get();
+    if (padding != null) padding.schedule();
+  }
+
+  private void clearBottomPadding(Activity activity) {
+    WeakReference<BluetoothDetailsBottomPadding> reference = bottomPadding.remove(activity);
+    BluetoothDetailsBottomPadding padding = reference == null ? null : reference.get();
+    if (padding != null) padding.dispose();
   }
 
   private void prepare(Activity activity) {

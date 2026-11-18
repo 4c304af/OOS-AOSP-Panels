@@ -24,8 +24,8 @@
     <string name="permission_scope_connecting">LSPosed に接続中…</string>
     <string name="permission_scope_requesting">LSPosed の案内に従って「権限コントローラ」の追加を許可してください。案内が表示されない場合は、通知を確認してください。</string>
     <string name="permission_scope_missing">「権限コントローラ」の追加が必要です。「設定を続ける」をタップし、LSPosed と root の案内で許可すると、自動で反映されます。</string>
-    <string name="permission_scope_added">「権限コントローラ」を追加しました。まだ以前のデザインなら、「設定を続ける」をタップして root 権限を許可すると、端末を再起動せずにもう一度反映できます。</string>
-    <string name="permission_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「権限コントローラ」を選び、このアプリに戻って設定を続けてください。</string>
+    <string name="permission_scope_added">「権限コントローラ」はモジュールの対象に追加されています。</string>
+    <string name="permission_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「権限コントローラ」を選んでから、この画面に戻り、スイッチを一度オフにしてからオンにしてください。</string>
     <string name="permission_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にしてから、アプリを開き直してください。それでも接続できない場合は、モジュールの対象に「権限コントローラ」を手動で選び、端末を再起動してください。</string>
     <string name="permission_scope_root_pending">設定を反映しています。root 管理アプリの案内が表示されたら、このモジュールの root 権限を許可してください。</string>
     <string name="permission_scope_ready">設定が完了しました。アプリが次にカメラや位置情報などの権限を求めるときから、Android 標準の画面になります。</string>
@@ -154,8 +154,8 @@
     <string name="bluetooth_scope_connecting">LSPosed に接続中…</string>
     <string name="bluetooth_scope_requesting">LSPosed の案内で「設定」と「ワイヤレス設定」の追加を許可してください。案内が表示されない場合は、通知を確認してください。</string>
     <string name="bluetooth_scope_missing">「設定」と「ワイヤレス設定」を対象に追加する必要があります。「設定を続ける」をタップし、LSPosed と root の案内で許可してください。</string>
-    <string name="bluetooth_scope_added">「設定」と「ワイヤレス設定」を追加しました。「設定を続ける」で反映し、Bluetooth デバイス画面を開き直してください。</string>
-    <string name="bluetooth_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「設定」と「ワイヤレス設定」を選び、ここに戻ってください。</string>
+    <string name="bluetooth_scope_added">「設定」と「ワイヤレス設定」はモジュールの対象に追加されています。</string>
+    <string name="bluetooth_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「設定」と「ワイヤレス設定」を選んでから、この画面に戻り、スイッチを一度オフにしてからオンにしてください。</string>
     <string name="bluetooth_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にして、アプリを開き直してください。対象に「設定」と「ワイヤレス設定」を手動で選び、端末を再起動して反映することもできます。</string>
     <string name="bluetooth_scope_root_pending">設定アプリに反映しています。root の案内が表示されたら許可してください。Bluetooth 接続は維持されます。</string>
     <string name="bluetooth_scope_ready">設定が完了しました。設定またはクイック設定から Bluetooth デバイスの詳細を開き直してください。</string>
@@ -168,8 +168,8 @@
     <string name="about_scope_connecting">LSPosed に接続中…</string>
     <string name="about_scope_requesting">LSPosed の案内で「設定」の追加を許可してください。案内が表示されない場合は、通知を確認してください。</string>
     <string name="about_scope_missing">「設定」を対象に追加する必要があります。「設定を続ける」をタップし、LSPosed と root の案内で許可してください。</string>
-    <string name="about_scope_added">「設定」を追加しました。「設定を続ける」で反映し、デバイス情報を開き直してください。</string>
-    <string name="about_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「設定」を選び、ここに戻ってください。</string>
+    <string name="about_scope_added">「設定」はモジュールの対象に追加されています。</string>
+    <string name="about_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「設定」を選んでから、この画面に戻り、スイッチを一度オフにしてからオンにしてください。</string>
     <string name="about_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にして、アプリを開き直してください。対象に「設定」を手動で選び、端末を再起動して反映することもできます。</string>
     <string name="about_scope_root_pending">設定アプリに反映しています。root の案内が表示されたら許可してください。</string>
     <string name="about_scope_ready">設定が完了しました。設定のデバイス情報を開き直してください。</string>
