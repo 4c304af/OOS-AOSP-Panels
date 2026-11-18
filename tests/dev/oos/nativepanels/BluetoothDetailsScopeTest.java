@@ -1,6 +1,6 @@
 package dev.oos.nativepanels;
 
-import static dev.oos.nativepanels.BluetoothDetailsScope.State.*;
+import static dev.oos.nativepanels.OptionalSettingsScope.State.*;
 import static org.junit.Assert.*;
 
 import android.content.Context;

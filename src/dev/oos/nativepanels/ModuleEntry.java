@@ -26,6 +26,7 @@ public final class ModuleEntry extends XposedModule {
     }
     if (BluetoothDetailsSettings.SETTINGS_PACKAGE.equals(p.getPackageName())) {
       installPart("bluetooth-details-theme", () -> new BluetoothDetailsHook(this, p.getClassLoader()).install());
+      installPart("about-phone-m3e", () -> new AboutPhoneHook(this, p.getClassLoader()).install());
       return;
     }
     if (BluetoothDetailsSettings.WIRELESS_PACKAGE.equals(p.getPackageName())) {

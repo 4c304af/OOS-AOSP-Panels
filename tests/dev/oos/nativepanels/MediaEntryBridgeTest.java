@@ -2,19 +2,33 @@ package dev.oos.nativepanels;
 
 import static org.junit.Assert.*;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import org.junit.Test;
 
 public class MediaEntryBridgeTest {
-  private static final class Store implements MediaEntryBridge.Store {
-    final Map<Object, Object> current = new HashMap<>();
-    final Map<Object, Object> ids = new HashMap<>();
+  private static class Store implements MediaEntryBridge.Store {
+    Map<Object, Object> current = new HashMap<>();
+    final Map<Object, Object> ids = new IdentityHashMap<>();
     int adds, removes;
     boolean dismissed;
     public Map<?, ?> entries() { return current; }
     public boolean dismissed() { return dismissed; }
-    public void add(Object data) { current.put(ids.get(data), data); adds++; dismissed = false; }
-    public void remove(Object id, Object data) { current.remove(id, data); removes++; }
+    public void add(Object data) {
+      Map<Object, Object> next = new HashMap<>(current);
+      next.put(ids.get(data), data);
+      // MediaPipelineRepository publishes copied maps through MutableStateFlow:
+      // an equal map is conflated, retaining the previous MediaData object.
+      if (!next.equals(current)) current = next;
+      adds++;
+      dismissed = false;
+    }
+    public void remove(Object id, Object data) {
+      Map<Object, Object> next = new HashMap<>(current);
+      next.remove(id, data);
+      if (!next.equals(current)) current = next;
+      removes++;
+    }
     MediaEntryBridge.Entry entry(Object id, Object data, Object token, boolean playing) {
       ids.put(data, id);
       return new MediaEntryBridge.Entry(data, id, token, playing);
@@ -46,6 +60,81 @@ public class MediaEntryBridgeTest {
     assertSame(mutableData, store.current.get(1));
     bridge.refresh(store);
     assertEquals(2, store.adds);
+  }
+
+  @Test public void equalReplayStillReceivesPlaybackChangesWithoutRepeatedRefreshAdds() throws Exception {
+    MediaEntryBridge bridge = new MediaEntryBridge();
+    Store store = new Store();
+    Object original = new String("playing");
+    Object replay = new String("playing");
+    bridge.loaded("key", null, store.entry(1, original, "token", true));
+    bridge.refresh(store);
+    bridge.loaded("key", "key", store.entry(1, replay, "token", true));
+    bridge.refresh(store);
+    assertSame(original, store.current.get(1));
+    bridge.refresh(store);
+    bridge.refresh(store);
+    assertEquals(2, store.adds);
+    Object stopped = "stopped";
+    bridge.loaded("key", "key", store.entry(1, stopped, "token", false));
+    bridge.refresh(store);
+    assertSame(stopped, store.current.get(1));
+    assertEquals(3, store.adds);
+  }
+
+  @Test public void endingOneOfThreeReplayedCardsRemovesOnlyThatCard() throws Exception {
+    MediaEntryBridge bridge = new MediaEntryBridge();
+    Store store = new Store();
+    for (int i = 0; i < 3; i++) {
+      bridge.loaded(i, null, store.entry(i, new String("media" + i), "token" + i, true));
+    }
+    bridge.refresh(store);
+    Object retained = store.current.get(1);
+    bridge.loaded(1, 1, store.entry(1, new String("media1"), "token1", true));
+    bridge.refresh(store);
+    assertSame(retained, store.current.get(1));
+    bridge.removed(1);
+    bridge.refresh(store);
+    assertEquals(java.util.Set.of(0, 2), store.current.keySet());
+    assertEquals(1, store.removes);
+    assertEquals(4, store.adds);
+  }
+
+  @Test public void clearingReplayedCardsRemovesTheRetainedObjects() throws Exception {
+    MediaEntryBridge bridge = new MediaEntryBridge();
+    Store store = new Store();
+    bridge.loaded("key", null, store.entry(1, new String("media"), "token", true));
+    bridge.refresh(store);
+    bridge.loaded("key", "key", store.entry(1, new String("media"), "token", true));
+    bridge.refresh(store);
+    bridge.clear(store);
+    assertTrue(store.current.isEmpty());
+    assertEquals(1, store.removes);
+    assertEquals(0, bridge.size());
+  }
+
+  @Test public void equalNativeReplacementDuringAddIsNotClaimed() throws Exception {
+    for (boolean stop : new boolean[]{false, true}) {
+      MediaEntryBridge bridge = new MediaEntryBridge();
+      Object nativeReplacement = new String("media");
+      Store store = new Store() {
+        @Override public void add(Object data) {
+          super.add(data);
+          if (adds == 2) current.put(1, nativeReplacement);
+        }
+      };
+      bridge.loaded("key", null, store.entry(1, new String("media"), "token", true));
+      bridge.refresh(store);
+      bridge.loaded("key", "key", store.entry(1, new String("media"), "token", true));
+      bridge.refresh(store);
+      bridge.loaded("key", "key", store.entry(1, "stopped", "token", false));
+      bridge.refresh(store);
+      if (stop) bridge.clear(store);
+      else { bridge.removed("key"); bridge.refresh(store); }
+      assertSame(nativeReplacement, store.current.get(1));
+      assertEquals(0, store.removes);
+      assertEquals(2, store.adds);
+    }
   }
 
   @Test public void aTokenlessPlaceholderCannotRestoreAnEndedCard() throws Exception {

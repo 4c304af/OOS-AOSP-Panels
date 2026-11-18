@@ -163,4 +163,18 @@
     <string name="bluetooth_scope_root_timeout">应用设置超时。请确认已允许 root 授权，再点“继续设置”，或重启手机应用。</string>
     <string name="bluetooth_scope_root_failed">未能自动应用。请确认 root 授权后点“继续设置”，或重启手机应用。</string>
     <string name="bluetooth_scope_retry">继续设置</string>
+    <string name="about_phone">关于本机 M3E 样式</string>
+    <string name="about_phone_desc">让“关于本机”使用 Material 3 Expressive 样式，保留原本信息与操作。开启后按提示授权，完成后重新打开“关于本机”。</string>
+    <string name="about_scope_connecting">正在连接 LSPosed…</string>
+    <string name="about_scope_requesting">请按照 LSPosed 的提示，允许加入“设置”。如果没有看到提示，请查看通知栏。</string>
+    <string name="about_scope_missing">需要将“设置”加入作用域。点“继续设置”，依次同意 LSPosed 与 root 提示。</string>
+    <string name="about_scope_added">已加入“设置”。点“继续设置”应用，再重新打开“关于本机”。</string>
+    <string name="about_scope_failed">尚未完成设置。点“继续设置”重试，或先到 LSPosed 中此模块的作用域勾选“设置”，再回来继续。</string>
+    <string name="about_scope_unavailable">尚未连上 LSPosed。请启用此模块，再重新打开本 App。也可以手动勾选“设置”作用域后重启手机。</string>
+    <string name="about_scope_root_pending">正在应用到设置 App。如果 root 管理器弹出提示，请允许授权。</string>
+    <string name="about_scope_ready">设置完成。请重新打开设置中的“关于本机”。</string>
+    <string name="about_scope_root_denied">尚未获取 root 权限。请允许本模块，再点“继续设置”，或重启手机应用。</string>
+    <string name="about_scope_root_timeout">应用设置超时。请确认 root 授权后点“继续设置”，或重启手机应用。</string>
+    <string name="about_scope_root_failed">未能自动应用。请确认 root 授权后点“继续设置”，或重启手机应用。</string>
+    <string name="about_scope_retry">继续设置</string>
 </resources>

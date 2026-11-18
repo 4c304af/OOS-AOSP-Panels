@@ -163,4 +163,18 @@
     <string name="bluetooth_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
     <string name="bluetooth_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
     <string name="bluetooth_scope_retry">設定を続ける</string>
+    <string name="about_phone">デバイス情報の M3E スタイル</string>
+    <string name="about_phone_desc">デバイス情報の画面を Material 3 Expressive スタイルにします。情報と操作はそのまま使えます。オンにして案内に従って許可したら、デバイス情報を開き直してください。</string>
+    <string name="about_scope_connecting">LSPosed に接続中…</string>
+    <string name="about_scope_requesting">LSPosed の案内で「設定」の追加を許可してください。案内が表示されない場合は、通知を確認してください。</string>
+    <string name="about_scope_missing">「設定」を対象に追加する必要があります。「設定を続ける」をタップし、LSPosed と root の案内で許可してください。</string>
+    <string name="about_scope_added">「設定」を追加しました。「設定を続ける」で反映し、デバイス情報を開き直してください。</string>
+    <string name="about_scope_failed">設定が完了していません。「設定を続ける」で再試行するか、LSPosed でこのモジュールの対象に「設定」を選び、ここに戻ってください。</string>
+    <string name="about_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にして、アプリを開き直してください。対象に「設定」を手動で選び、端末を再起動して反映することもできます。</string>
+    <string name="about_scope_root_pending">設定アプリに反映しています。root の案内が表示されたら許可してください。</string>
+    <string name="about_scope_ready">設定が完了しました。設定のデバイス情報を開き直してください。</string>
+    <string name="about_scope_root_denied">root 権限が許可されていません。このモジュールを許可して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="about_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="about_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="about_scope_retry">設定を続ける</string>
 </resources>

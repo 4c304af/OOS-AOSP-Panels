@@ -82,6 +82,7 @@ public class ScopeServiceConnectionTest {
     PanelApplication application = application();
     CombinedQsSettings.setEnabled(application, CombinedQsSettings.PERMISSION_DIALOG, true);
     CombinedQsSettings.setEnabled(application, CombinedQsSettings.BLUETOOTH_DETAILS, true);
+    CombinedQsSettings.setEnabled(application, CombinedQsSettings.ABOUT_PHONE, true);
     List<String> packages = List.of(PermissionDialogHook.PACKAGE,
         BluetoothDetailsSettings.SETTINGS_PACKAGE, BluetoothDetailsSettings.WIRELESS_PACKAGE);
     Transport cached = new Transport(packages);
@@ -89,9 +90,11 @@ public class ScopeServiceConnectionTest {
 
     PermissionDialogScope permission = application.permissionScope();
     BluetoothDetailsScope bluetooth = application.bluetoothDetailsScope();
+    AboutPhoneScope about = application.aboutPhoneScope();
     ShadowLooper.idleMainLooper();
     assertEquals(PermissionDialogScope.State.ADDED, permission.state());
     assertEquals(BluetoothDetailsScope.State.ADDED, bluetooth.state());
+    assertEquals(AboutPhoneScope.State.ADDED, about.state());
     assertEquals(0, cached.requests);
 
     Transport replacement = new Transport(packages);
@@ -100,10 +103,12 @@ public class ScopeServiceConnectionTest {
     ShadowLooper.idleMainLooper();
     assertEquals(PermissionDialogScope.State.ADDED, permission.state());
     assertEquals(BluetoothDetailsScope.State.ADDED, bluetooth.state());
+    assertEquals(AboutPhoneScope.State.ADDED, about.state());
     replacement.die();
     ShadowLooper.idleMainLooper();
     assertEquals(PermissionDialogScope.State.UNAVAILABLE, permission.state());
     assertEquals(BluetoothDetailsScope.State.UNAVAILABLE, bluetooth.state());
+    assertEquals(AboutPhoneScope.State.UNAVAILABLE, about.state());
     assertEquals(0, replacement.requests);
   }
 

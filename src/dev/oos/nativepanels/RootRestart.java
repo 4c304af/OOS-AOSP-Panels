@@ -59,6 +59,18 @@ final class RootRestart {
           + "echo OOSNP_RESTART=OK\n"
           + "exit 0\n";
 
+  private static final String SETTINGS_RESTART =
+      "if ! /system/bin/pidof com.android.settings >/dev/null; then\n"
+          + "  echo OOSNP_RESTART=NOT_RUNNING\n"
+          + "  exit 11\n"
+          + "fi\n"
+          + "if /system/bin/killall -TERM com.android.settings; then\n"
+          + "  echo OOSNP_RESTART=OK\n"
+          + "  exit 0\n"
+          + "fi\n"
+          + "echo OOSNP_RESTART=FAILED\n"
+          + "exit 12\n";
+
   private RootRestart() {}
 
   static Result restart() throws IOException {
@@ -82,6 +94,18 @@ final class RootRestart {
   static Result runBluetoothSettings(Process process, long authTimeoutMs,
       long commandTimeoutMs, BooleanSupplier allowed) {
     return run(process, authTimeoutMs, commandTimeoutMs, BLUETOOTH_SETTINGS_RESTART, allowed);
+  }
+
+  /** Reloads the Settings host without restarting other optional feature hosts. */
+  static Result restartSettings(BooleanSupplier allowed) throws IOException {
+    if (!allowed.getAsBoolean()) return Result.FAILED;
+    return runSettings(
+        new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
+  static Result runSettings(Process process, long authTimeoutMs,
+      long commandTimeoutMs, BooleanSupplier allowed) {
+    return run(process, authTimeoutMs, commandTimeoutMs, SETTINGS_RESTART, allowed);
   }
 
   static Result run(Process process, long authTimeoutMs, long commandTimeoutMs) {

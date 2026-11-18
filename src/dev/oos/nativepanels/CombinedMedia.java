@@ -20,6 +20,7 @@ final class CombinedMedia {
   private final Handler main = new Handler(Looper.getMainLooper());
   private final MediaEntryBridge entries = new MediaEntryBridge();
   private Object model, filter, listener, published;
+  private MediaPlayerEvents playerEvents;
   private volatile Object repository;
   private Field userEntries;
   private Class<?> listenerType;
@@ -181,6 +182,13 @@ final class CombinedMedia {
     catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
     try { new MediaMetadataText(() -> repository).install(runtime); }
     catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
+    try { new MediaAppIcons(() -> repository).install(runtime, layout, composer); }
+    catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
+    try {
+      MediaPlayerEvents events = new MediaPlayerEvents(this::playerEventOwner);
+      events.install(runtime);
+      playerEvents = events;
+    } catch (ReflectiveOperationException unavailable) { layout.warn(unavailable); }
     // Some builds already feed the Compose repository. Only bridge legacy-filter
     // entries on builds which actually select LegacyMediaDataManagerImpl.
     try {
@@ -316,6 +324,14 @@ final class CombinedMedia {
     if (!listening || filter == null) return;
     try { entries.refresh(store); }
     catch (Exception e) { layout.warn(e); }
+  }
+
+  private Object playerEventOwner() {
+    // UI detachment/locking stops our Compose feed, but must not leave the OEM
+    // source cache stale for the next attach. Resolve only on an actual empty event.
+    if (!installed || playerEvents == null || runtime.combinedQs.status != R.string.combined_selected) return null;
+    try { return playerEvents.playerManager(runtime.provider("providesMediaDataManagerProvider")); }
+    catch (Throwable unavailable) { layout.warn(unavailable); return null; }
   }
 
   private MediaEntryBridge.Entry mediaEntry(Object data) throws ReflectiveOperationException {

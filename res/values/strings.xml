@@ -163,4 +163,18 @@
     <string name="bluetooth_scope_root_timeout">Applying the change took too long. Check that root access is allowed, then tap Continue setup, or restart your phone.</string>
     <string name="bluetooth_scope_root_failed">The change could not be applied automatically. Check root access and tap Continue setup, or restart your phone.</string>
     <string name="bluetooth_scope_retry">Continue setup</string>
+    <string name="about_phone">M3E About phone</string>
+    <string name="about_phone_desc">Use Material 3 Expressive styling for About phone while keeping its information and actions. Turn this on, follow the setup prompts, then reopen About phone.</string>
+    <string name="about_scope_connecting">Connecting to LSPosed…</string>
+    <string name="about_scope_requesting">Approve the LSPosed prompt to add Settings. If no prompt appears, check your notifications.</string>
+    <string name="about_scope_missing">Settings needs to be in the module’s scope. Tap Continue setup and approve the LSPosed and root prompts.</string>
+    <string name="about_scope_added">Settings has been added. Tap Continue setup to apply, then reopen About phone.</string>
+    <string name="about_scope_failed">Setup is not complete. Tap Continue setup to retry, or select Settings in this module’s scope in LSPosed, then return here.</string>
+    <string name="about_scope_unavailable">LSPosed is not connected. Enable this module and reopen this app. You can also select Settings in its scope manually, then restart your phone.</string>
+    <string name="about_scope_root_pending">Applying the change to Settings. Allow root access if prompted.</string>
+    <string name="about_scope_ready">Setup complete. Reopen About phone in Settings.</string>
+    <string name="about_scope_root_denied">Root access has not been granted. Allow this module, then tap Continue setup, or restart your phone to apply.</string>
+    <string name="about_scope_root_timeout">Applying the change took too long. Check root access and tap Continue setup, or restart your phone.</string>
+    <string name="about_scope_root_failed">The change could not be applied automatically. Check root access and tap Continue setup, or restart your phone.</string>
+    <string name="about_scope_retry">Continue setup</string>
 </resources>

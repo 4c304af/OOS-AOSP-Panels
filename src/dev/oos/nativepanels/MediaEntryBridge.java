@@ -10,6 +10,7 @@ import java.util.Set;
 /** Bridges accepted legacy events without taking ownership of native replacements. */
 final class MediaEntryBridge {
   record Entry(Object data, Object id, Object token, boolean playing) {}
+  private record Supplied(Object stored, Object source) {}
   interface Store {
     Map<?, ?> entries() throws Exception;
     default boolean dismissed() throws Exception { return false; }
@@ -18,7 +19,7 @@ final class MediaEntryBridge {
   }
 
   private final Map<Object, Entry> sources = new HashMap<>();
-  private final Map<Object, Object> supplied = new HashMap<>();
+  private final Map<Object, Supplied> supplied = new HashMap<>();
   private final Set<Object> updated = new HashSet<>(), reactivated = new HashSet<>(), observed = new HashSet<>();
 
   void loaded(Object key, Object oldKey, Entry entry) {
@@ -41,14 +42,16 @@ final class MediaEntryBridge {
     Map<?, ?> current = store.entries();
     for (Object id : new ArrayList<>(supplied.keySet())) {
       if (!desired.containsKey(id)) {
-        Object previous = supplied.get(id);
+        Object previous = supplied.get(id).stored();
         if (current.get(id) == previous) store.remove(id, previous);
         supplied.remove(id);
       }
     }
     boolean dismissed = store.dismissed();
     for (Entry entry : desired.values()) {
-      Object id = entry.id(), data = entry.data(), previous = supplied.get(id);
+      Object id = entry.id(), data = entry.data();
+      Supplied supply = supplied.get(id);
+      Object previous = supply == null ? null : supply.stored();
       Object nativeEntry = current.get(id);
       boolean seen = observed.contains(id);
       if (nativeEntry != null) observed.add(id);
@@ -61,9 +64,16 @@ final class MediaEntryBridge {
       if (nativeEntry == null && seen && !reactivated.contains(id)) continue;
       // MediaData.active/lastActive/resumption can mutate in place. A real load event
       // must rebuild the native immutable card even when the source object is unchanged.
-      if (nativeEntry == data && !updated.contains(id)) continue;
+      if (supply != null && nativeEntry == previous && supply.source() == data
+          && !updated.contains(id)) continue;
       store.add(data);
-      supplied.put(id, data);
+      // The repository's StateFlow retains the old object when a copied MediaData
+      // compares equal. Track that retained identity so later updates/removals still
+      // recognize our card, and track the accepted source to avoid rebuilding on refresh.
+      current = store.entries();
+      Object retained = current.get(id);
+      Object owned = retained == data || retained != null && retained == previous ? retained : data;
+      supplied.put(id, new Supplied(owned, data));
       observed.add(id);
     }
     updated.clear();
@@ -75,9 +85,10 @@ final class MediaEntryBridge {
       if (store != null) {
         Map<?, ?> current = store.entries();
         Exception failure = null;
-        for (Map.Entry<Object, Object> entry : supplied.entrySet()) {
-          if (current.get(entry.getKey()) != entry.getValue()) continue;
-          try { store.remove(entry.getKey(), entry.getValue()); }
+        for (Map.Entry<Object, Supplied> entry : supplied.entrySet()) {
+          Object previous = entry.getValue().stored();
+          if (current.get(entry.getKey()) != previous) continue;
+          try { store.remove(entry.getKey(), previous); }
           catch (Exception e) {
             if (failure == null) failure = e;
             else if (failure != e) failure.addSuppressed(e);

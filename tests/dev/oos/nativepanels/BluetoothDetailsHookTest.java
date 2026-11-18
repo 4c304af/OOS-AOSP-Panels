@@ -105,4 +105,26 @@ public class BluetoothDetailsHookTest {
     one.next = two; two.next = one;
     assertNull(BluetoothDetailsHook.activity(one));
   }
+
+  @Test public void nativeSpacingIsLimitedToTheOwnedDeviceFragmentAndEndsWithOwnership() throws Exception {
+    BluetoothDetailsHook hook = new BluetoothDetailsHook(null, getClass().getClassLoader());
+    var field = BluetoothDetailsHook.class.getDeclaredField("owned");
+    field.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var owned = (java.util.Map<Activity, Integer>)field.get(hook);
+    try (var first = Robolectric.buildActivity(Activity.class).setup();
+         var second = Robolectric.buildActivity(Activity.class).setup()) {
+      Context wrapped = new ContextThemeWrapper(first.get(), android.R.style.Theme_Material);
+      assertFalse(hook.nativePreferenceSpacing(BluetoothDetailsHook.FRAGMENT, wrapped));
+      owned.put(first.get(), 1);
+      assertTrue(hook.nativePreferenceSpacing(BluetoothDetailsHook.FRAGMENT, wrapped));
+      // The common OOS getter is shared by every settings screen. Neither another
+      // fragment in this Activity nor another Activity may acquire our spacing.
+      assertFalse(hook.nativePreferenceSpacing("com.android.settings.wifi.WifiSettings", wrapped));
+      assertFalse(hook.nativePreferenceSpacing(BluetoothDetailsHook.FRAGMENT, second.get()));
+      assertFalse(hook.nativePreferenceSpacing(BluetoothDetailsHook.FRAGMENT, RuntimeEnvironment.getApplication()));
+      owned.remove(first.get());
+      assertFalse(hook.nativePreferenceSpacing(BluetoothDetailsHook.FRAGMENT, wrapped));
+    }
+  }
 }

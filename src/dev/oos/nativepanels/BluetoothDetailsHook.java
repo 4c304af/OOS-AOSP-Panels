@@ -53,6 +53,11 @@ final class BluetoothDetailsHook {
     Class<?> buttons = type("com.android.settingslib.widget.ActionButtonsPreference");
     Class<?> adapter = type("com.android.settingslib.widget.SettingsPreferenceGroupAdapter");
     Class<?> fragment = type("com.android.settingslib.widget.SettingsBasePreferenceFragment");
+    Class<?> oosFragment = type("com.oplus.settings.SettingsBaseFragment");
+    Method spacing = oosFragment.getDeclaredMethod("isPreferenceSpacingEnabled");
+    Method fragmentContext = type("androidx.fragment.app.Fragment").getMethod("getContext");
+    if (spacing.getReturnType() != boolean.class)
+      throw new NoSuchMethodException("Unsupported Bluetooth Settings spacing contract");
 
     module.hook(create).setId("native-panels:bluetooth-details-create")
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
@@ -72,6 +77,13 @@ final class BluetoothDetailsHook {
     module.hook(helper).setId("native-panels:bluetooth-details-theme-context")
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c ->
             owns((Context)c.getArg(0)) ? true : c.proceed());
+    module.hook(spacing).setId("native-panels:bluetooth-details-spacing")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
+          Object screen = c.getThisObject();
+          if (!FRAGMENT.equals(screen.getClass().getName())) return c.proceed();
+          return nativePreferenceSpacing(screen.getClass().getName(), (Context)fragmentContext.invoke(screen))
+              ? true : c.proceed();
+        });
     module.hook(theme).setId("native-panels:bluetooth-details-theme")
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
           Object result = c.proceed();
@@ -99,6 +111,10 @@ final class BluetoothDetailsHook {
     deoptimizeNamed(buttons, "init", "updateLayout", "onBindViewHolder");
     deoptimizeNamed(adapter, "updatePreferencesList", "onPreferenceHierarchyChange", "onBindViewHolder");
     deoptimizeNamed(fragment, "onCreateAdapter", "onViewCreated");
+    // OOS separately disables the native MarginItemDecoration with a constant-false
+    // getter. Let SettingsLib install it once: ordinary rows use its 2dp token,
+    // while ChainedMixin items retain the native zero-gap rule.
+    deoptimizeNamed(oosFragment, "onViewCreated");
     deoptimizeNamed(type("com.android.settings.widget.HighlightablePreferenceGroupAdapter"),
         "getBackgroundRes");
     for (java.lang.reflect.Constructor<?> constructor : buttons.getDeclaredConstructors()) deoptimize(constructor);
@@ -127,6 +143,10 @@ final class BluetoothDetailsHook {
   private boolean owns(Context context) {
     Activity activity = activity(context);
     return activity != null && owned.containsKey(activity);
+  }
+
+  boolean nativePreferenceSpacing(String fragmentClass, Context context) {
+    return FRAGMENT.equals(fragmentClass) && owns(context);
   }
 
   static Activity activity(Context context) {
