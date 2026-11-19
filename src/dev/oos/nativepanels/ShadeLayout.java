@@ -34,6 +34,7 @@ final class ShadeLayout {
   private Object headerSize;
   private boolean open, lockedShade;
   private boolean measuringExpanded;
+  private boolean measuringStackedGrid;
   private float qsExpansion, headerTranslation;
   float shadeExpansion, scrimTranslation;
   private String warning = "";
@@ -124,7 +125,19 @@ final class ShadeLayout {
       try {
         viewMotion = fragmentModel.getMethod("getViewTranslationY");
         viewAlpha = fragmentModel.getMethod("getViewAlpha");
-      } catch (NoSuchMethodException missing) { warn(missing); }
+        Method split = fragmentModel.getMethod("isInSplitShade");
+        Method fraction = fragmentModel.getMethod("getPanelExpansionFraction");
+        runtime.module.hook(viewAlpha).setId("native-panels:split-qs-alpha").intercept(chain -> {
+          float nativeAlpha = (Float)chain.proceed();
+          Object vm = chain.getThisObject();
+          if (vm != model.get() || lockedShade || !(Boolean)split.invoke(vm)) return nativeAlpha;
+          // Reading the Compose fraction here invalidates the graphics layer even on phones
+          // whose stock alpha stays at one throughout a split-shade pull.
+          return splitAlpha(nativeAlpha, (Float)fraction.invoke(vm));
+        });
+        runtime.module.deoptimize(runtime.type(fragment.getName() + "$$ExternalSyntheticLambda5")
+            .getDeclaredMethod("invoke", Object.class));
+      } catch (ReflectiveOperationException missing) { warn(missing); }
       try {
         headerSize = runtime.type("androidx.compose.runtime.SnapshotStateKt").getMethod("mutableStateOf$default", Object.class).invoke(null, 0L);
         readHeaderSize = runtime.type("androidx.compose.runtime.State").getMethod("getValue");
@@ -137,10 +150,11 @@ final class ShadeLayout {
         if (owner != null && chain.getThisObject() == model.get()) {
           // Subscribe both QQS and QS padding to measured inset changes after rotation.
           if (headerSize != null && readHeaderSize != null) readHeaderSize.invoke(headerSize);
-          if (owner.splitLayout()) return owner.gridHeaderHeight();
+          boolean split = owner.splitLayout();
+          if (measuringExpanded) return owner.expandedGridHeaderHeight(split);
+          return split ? owner.gridHeaderHeight() : Math.max(original, owner.headerHeight());
         }
-        return owner != null && chain.getThisObject() == model.get()
-            ? Math.max(original, measuringExpanded ? owner.expandedHeight() : owner.headerHeight()) : original;
+        return original;
       });
       Method expansion = fragment.getDeclaredMethod("setQsExpansion", float.class, float.class, float.class, float.class);
       runtime.module.hook(expansion).setId("native-panels:slider-expansion").intercept(chain -> {
@@ -153,7 +167,7 @@ final class ShadeLayout {
           float hostTranslation = (Float) chain.getArg(2);
           scrimTranslation = Float.isFinite(hostTranslation) ? hostTranslation : 0f;
           headerTranslation = runtime.settingsLaunch.translationDuringExit(
-              runtime.combinedQs.expansion.gridTranslation(hostTranslation));
+              runtime.combinedQs.expansion.gridTranslation(hostTranslation, shade, current == null ? 0 : current.frame.getHeight()));
           if (current != null) {
             current.expansion(qsExpansion);
             current.headerTranslation(headerTranslation);
@@ -176,7 +190,9 @@ final class ShadeLayout {
         if (owner != null) {
           int id = (Integer) chain.getArg(0);
           if (measuringExpanded && id != 0 && id == owner.panelPaddingTop && ownsComposition(owner, chain.getArg(1))) {
-            return expandedPadding((Float) chain.proceed());
+            // QuickSettingsElement already reserves the live header and the panel's own
+            // top padding. This is the separate ROM spacer above the brightness row.
+            return 0f;
           }
           if (owner.isTileGap(id) && ownsComposition(owner, chain.getArg(1))) return 8f;
         }
@@ -184,8 +200,35 @@ final class ShadeLayout {
       });
       try { installHeaderSlot(fragment, composer); } catch (Exception e) { warn(e); }
       try { media.install(composer); } catch (Exception e) { warn(e); }
+      try { installStackedMediaSpacing(composer); } catch (ReflectiveOperationException e) { warn(e); }
       installSlider(composer);
     } catch (Exception e) { warn(e); }
+  }
+
+  private void installStackedMediaSpacing(Class<?> composer) throws ReflectiveOperationException {
+    Class<?> content = runtime.type("kotlin.jvm.functions.Function2");
+    Method grid = runtime.type("com.android.systemui.qs.composefragment.QSFragmentComposeKt")
+        .getDeclaredMethod("QuickSettingsLayout", content, content, content, boolean.class, composer, int.class);
+    Method verticalPadding = runtime.type("com.android.systemui.qs.ui.composable.QuickSettingsShade$Dimensions")
+        .getDeclaredMethod("getVerticalPadding", composer, int.class);
+    Method hasPlayer = runtime.type("com.android.systemui.qs.composefragment.viewmodel.QSFragmentComposeViewModel")
+        .getDeclaredMethod("getQsMediaVisible");
+    runtime.module.hook(grid).setId("native-panels:expanded-stacked-grid").intercept(chain -> {
+      boolean previous = measuringStackedGrid;
+      measuringStackedGrid = !(Boolean)chain.getArg(3);
+      try { return chain.proceed(); } finally { measuringStackedGrid = previous; }
+    });
+    runtime.module.hook(verticalPadding).setId("native-panels:stacked-media-spacing").intercept(chain -> {
+      float spacing = (Float)chain.proceed();
+      if (!measuringStackedGrid) return spacing;
+      // Only the first read creates the column arrangement. Children use their own spacing.
+      measuringStackedGrid = false;
+      ShadeDecor owner = compositionOwner(chain.getArg(0));
+      Object vm = model.get();
+      return owner != null && !owner.splitLayout() && vm != null && (Boolean)hasPlayer.invoke(vm)
+          ? Math.min(spacing, 8f) : spacing;
+    });
+    runtime.module.deoptimize(grid);
   }
 
   private void installHeaderSlot(Class<?> fragment, Class<?> composer) throws Exception {
@@ -438,7 +481,7 @@ final class ShadeLayout {
   void resetGeometry(ShadeDecor owner, boolean rotated) {
     if (owner != decor.get()) return;
     headerTranslation = scrimTranslation = 0f;
-    touch.cancelSplitGesture();
+    touch.cancelGestures();
     if (rotated) {
       if (runtime.settingsLaunch.isTracking(owner.frame)) runtime.settingsLaunch.interruptForTouch();
       // ScrollState belongs to the fragment and can survive a configuration change.
@@ -461,6 +504,10 @@ final class ShadeLayout {
   float qsAlpha() throws Exception {
     Object vm = model.get();
     return vm == null || viewAlpha == null ? 0f : (Float)viewAlpha.invoke(vm);
+  }
+
+  static float splitAlpha(float nativeAlpha, float shade) {
+    return Float.isFinite(shade) ? Math.min(nativeAlpha, Math.max(0f, shade)) : nativeAlpha;
   }
 
   boolean isSelected(Object fragment) { return fragment != null && fragment == selected.get(); }
@@ -506,6 +553,5 @@ final class ShadeLayout {
     Fragment fragment = selected.get();
     return fragment == null || (Boolean) editing.invoke(fragment);
   }
-  static float expandedPadding(float originalDp) { return Math.min(originalDp, 8f); }
 
 }

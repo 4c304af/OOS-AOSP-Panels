@@ -71,10 +71,14 @@ public class ShadeDecorTest {
     decor.dispose();
   }
 
-  @Test public void expandedExtraPaddingRespectsSmallerRomLayouts() {
-    assertEquals(8f, ShadeLayout.expandedPadding(80f), 0);
-    assertEquals(4f, ShadeLayout.expandedPadding(4f), 0);
-    assertEquals(0f, ShadeLayout.expandedPadding(0f), 0);
+  @Test public void expandedSpacerAccountsForPanelPaddingWithoutCoveringTheHeader() {
+    // Portrait keeps 8dp of the panel's 16dp padding under the date. Split only trims 2dp
+    // of that padding, and honors a header already reserved by the surrounding pane.
+    assertEquals(208, ShadeDecor.expandedSpacer(200, 16, 8) + 16);
+    assertEquals(62, ShadeDecor.expandedSpacer(48, 16, 2) + 16);
+    assertEquals(0, ShadeDecor.expandedSpacer(0, 16, 2));
+    assertEquals(200, ShadeDecor.expandedSpacer(200, 4, 8) + 4);
+    assertEquals(200, ShadeDecor.expandedSpacer(200, 0, 8));
   }
 
   @Test public void automaticModeChangesBothButtonShapeAndSelection() throws Exception {

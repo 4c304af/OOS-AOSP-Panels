@@ -78,6 +78,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   int brightnessBand = -1;
   long lastTick;
   final int panelPaddingTop;
+  private final int panelVerticalPadding;
   private final int selectedRadius, unselectedRadius;
   private final ShadeLayout layout;
   private final PanelRuntime runtime;
@@ -124,6 +125,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     context = frame.getContext();
     orientation = context.getResources().getConfiguration().orientation;
     panelPaddingTop = id("qs_panel_padding_top", "dimen");
+    panelVerticalPadding = id("overlay_qs_layout_vertical_padding", "dimen");
     selectedRadius = buttonRadius("common_tile_default_active_icon_corner_radius", 16);
     unselectedRadius = buttonRadius("common_tile_default_inactive_icon_corner_radius", 24);
     horizontal = id("qs_tile_margin_horizontal", "dimen");
@@ -225,6 +227,18 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   }
 
   int gridHeaderHeight() { return sharedHeader != null && sharedHeader.placed() ? sharedHeader.reserve : headerHeight(); }
+
+  int expandedGridHeaderHeight(boolean split) {
+    int header = split ? gridHeaderHeight() : expandedHeight();
+    // The expanded Column adds its own vertical padding after the header spacer. Credit
+    // part of that padding to the spacer without shifting the clock or crossing its bounds.
+    int padding = panelVerticalPadding == 0 ? 0 : context.getResources().getDimensionPixelSize(panelVerticalPadding);
+    return expandedSpacer(header, padding, dp(split ? 2 : 8));
+  }
+
+  static int expandedSpacer(int header, int panelPadding, int credit) {
+    return Math.max(0, header - Math.min(panelPadding, credit));
+  }
 
   private void restoreSharedHeader() {
     if (!sharedHeader.placed()) return;
@@ -454,7 +468,11 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     if (layout != null && opening && !changedLock) layout.notificationScrim.beginPull();
     lockedShade = restricted;
     open = value;
-    if (layout != null && (!value || restricted)) { layout.notificationScrim.endPull(); layout.cards.clear(); }
+    if (layout != null && (!value || restricted)) {
+      layout.touch.cancelGestures();
+      layout.notificationScrim.endPull();
+      layout.cards.clear();
+    }
     if (changedLock && restricted) {
       preview.reset();
       if (layout != null) layout.media.onShadeLocked();
