@@ -2,11 +2,13 @@ package dev.oos.nativepanels;
 
 import static org.junit.Assert.*;
 import android.app.Activity;
+import android.app.Notification;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.service.notification.StatusBarNotification;
 import android.view.View;
 import android.widget.FrameLayout;
 import java.lang.reflect.Constructor;
@@ -325,6 +327,63 @@ public class NotificationGroupBackgroundTest {
     assertEquals(0, get(outsideCard, "joined"));
   }
 
+  @Test public void callAndMessagesShareCornersWhileCallBackgroundStaysNative() throws Exception {
+    Row message = addStandalone(82), last = addStandalone(164);
+    String messaging = Notification.MessagingStyle.class.getName();
+    standalone.post(Notification.CATEGORY_CALL, null);
+    message.post(null, messaging);
+    last.post(null, messaging);
+    ColorDrawable callBackground = new ColorDrawable(Color.BLUE);
+    standalone.bg.setBackground(callBackground);
+    set(cards, "ready", true);
+    cards.setEnabled(true);
+    set(cards, "shadeRoot", stack.getRootView());
+    for (String token : List.of("lightToken", "darkToken", "normalToken"))
+      set(cards, token, android.R.color.white);
+    bindRowMethod("entryAdapter", "getEntryAdapter");
+    bindRowMethod("adapterSbn", "getSbn");
+    set(cards, "background", Row.class.getDeclaredField("bg"));
+    set(cards, "nativeSetRadius", Background.class.getMethod("setRadius", float.class, float.class, boolean.class));
+    call(cards, "discover", new Class<?>[]{View.class}, stack);
+    Map<?, ?> bound = (Map<?, ?>)get(cards, "rows");
+
+    cards.update(stack);
+    Object callCard = bound.get(standalone), messageCard = bound.get(message);
+    assertNotNull(callCard);
+    assertEquals(2, get(callCard, "joined"));
+    assertEquals(3, get(messageCard, "joined"));
+    assertEquals(1, get(bound.get(last), "joined"));
+    assertEquals(standalone.bg.radii[4], message.bg.radii[0], 0f);
+    assertTrue(standalone.bg.radii[0] > standalone.bg.radii[4]);
+    assertEquals(Color.TRANSPARENT, draw(callCard).getPixel(100, 40));
+    assertSame(callBackground, standalone.bg.getBackground());
+
+    // The same row can be rebound as an ordinary message or a CallStyle without CATEGORY_CALL.
+    standalone.post(null, messaging);
+    cards.update(stack);
+    assertSame(callCard, bound.get(standalone));
+    assertTrue(Color.alpha(draw(callCard).getPixel(100, 40)) > 0);
+    standalone.post(null, Notification.CallStyle.class.getName());
+    cards.update(stack);
+    assertSame(callCard, bound.get(standalone));
+    assertEquals(Color.TRANSPARENT, draw(callCard).getPixel(100, 40));
+
+    standalone.headsUp = true;
+    cards.update(stack);
+    assertFalse(bound.containsKey(standalone));
+    assertEquals(2, get(messageCard, "joined"));
+    standalone.headsUp = false;
+    cards.update(stack);
+    assertEquals(3, get(messageCard, "joined"));
+    stack.removeView(standalone);
+    cards.update(stack);
+    android.os.SystemClock.sleep(NotificationCornerTransition.DURATION_MILLIS + 1);
+    cards.update(stack);
+    assertEquals(2, get(messageCard, "joined"));
+    assertTrue(message.bg.radii[0] > message.bg.radii[4]);
+    assertEquals(1, get(bound.get(last), "joined"));
+  }
+
   @Test public void vendorAnimationFlagKeepsSummaryAndChildrenOnTheNativeAnimationRenderer() throws Exception {
     // This ROM exposes the animation only through mRowEx, not a method on the row.
     set(cards, "childrenAnimating", null);
@@ -559,7 +618,8 @@ public class NotificationGroupBackgroundTest {
     Constructor<?> constructor = type.getDeclaredConstructor(NotificationCards.class, View.class, View.class);
     constructor.setAccessible(true);
     Object card = constructor.newInstance(cards, row, row.bg);
-    call(card, "update", new Class<?>[]{View.class, View.class, int.class}, null, null, fill);
+    call(card, "update", new Class<?>[]{NotificationCards.Surface.class, View.class, View.class, int.class},
+        NotificationCards.Surface.STANDARD, null, null, fill);
     return card;
   }
 
@@ -606,6 +666,7 @@ public class NotificationGroupBackgroundTest {
     final Background bg;
     final FrameLayout content;
     final Children children;
+    private StatusBarNotification sbn;
     Row(Context context) {
       super(context);
       bg = new Background(context);
@@ -626,6 +687,15 @@ public class NotificationGroupBackgroundTest {
     public StackState getViewState() { return state; }
     public Children getChildrenContainer() { return children; }
     public FrameLayout getPrivateLayout() { return content; }
+    public Row getEntryAdapter() { return this; }
+    public StatusBarNotification getSbn() { return sbn; }
+    void post(String category, String template) {
+      Notification n = new Notification();
+      n.category = category;
+      n.extras.putString(Notification.EXTRA_TEMPLATE, template);
+      sbn = new StatusBarNotification("test", "test", 1, null, 1000, 0, 0, n,
+          android.os.Process.myUserHandle(), 0L);
+    }
     public int getActualHeight() { return getHeight(); }
     public int getClipTopAmount() { return clipTopAmount; }
     public int getClipBottomAmount() { return clipBottomAmount; }
