@@ -5,9 +5,6 @@ import io.github.libxposed.api.XposedInterface;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.Collections;
-import java.util.Set;
-import java.util.WeakHashMap;
 
 /** Select the classic SystemUI pull for the module's combined shade on this display. */
 final class ShadePullMotion {
@@ -19,7 +16,6 @@ final class ShadePullMotion {
   private Pane rowPass = Pane.STOCK;
   private boolean rowsReady;
   private WeakReference<View> normalized = new WeakReference<>(null);
-  private final Set<View> clearedRows = Collections.newSetFromMap(new WeakHashMap<>());
 
   ShadePullMotion(PanelRuntime runtime) { this.runtime = runtime; }
 
@@ -144,10 +140,7 @@ final class ShadePullMotion {
       try {
         rowPass = listPane(target);
         if (rowPass == Pane.STOCK) {
-          if (normalized.get() == target) {
-            normalized.clear();
-            clearedRows.clear();
-          }
+          if (normalized.get() == target) normalized.clear();
         } else if (normalized.get() != target && controller.get(target) != null) {
           // A previously hidden OOS list can still have an element-show animator or
           // its final scale/alpha. Return alpha to the native controller's visibility limits.
@@ -157,7 +150,6 @@ final class ShadePullMotion {
           target.setScaleY(1f);
           stockAlpha.invoke(controller.get(target));
           normalized = new WeakReference<>(target);
-          clearedRows.clear();
         }
         return chain.proceed();
       } finally { rowPass = previous; }
@@ -165,27 +157,12 @@ final class ShadePullMotion {
     runtime.module.deoptimize(update);
     runtime.module.hook(level).setId("native-panels:classic-row-positions").intercept(chain ->
         rowPass != Pane.STOCK ? false : chain.proceed());
+    // Adjust only the base pull opacity. OOS still has to update each row and its
+    // grouped children when a hide animation ends or a notification is rebound.
     runtime.module.hook(alpha).setId("native-panels:classic-row-alpha").intercept(chain -> switch (rowPass) {
       case PORTRAIT -> chain.getArg(0); // SystemUI already evaluated ShadeInterpolation.getContentAlpha.
       case SPLIT -> splitContentAlpha((Float)chain.getArg(1));
       default -> chain.proceed();
-    });
-    Class<?> row = runtime.type("com.android.systemui.statusbar.notification.row.ExpandableView");
-    Method reset = rows.getDeclaredMethod("resetViewState", row, boolean.class);
-    Method apply = Reflect.method(rows, "updateViewAlphaAndScale", row,
-        runtime.type("com.android.systemui.statusbar.notification.stack.ViewState"),
-        runtime.type("com.android.systemui.statusbar.notification.stack.AmbientState"),
-        runtime.type("com.android.systemui.statusbar.notification.stack.StackScrollAlgorithm$StackScrollAlgorithmState"),
-        android.view.ViewGroup.class);
-    runtime.module.hook(apply).setId("native-panels:classic-row-show").intercept(chain -> {
-      View child = (View)chain.getArg(0);
-      if (rowPass == Pane.STOCK) {
-        clearedRows.remove(child);
-        return chain.proceed();
-      }
-      // Drop an inherited OOS show/hide request once when the row changes owner.
-      if (clearedRows.add(child)) reset.invoke(chain.getThisObject(), child, false);
-      return null;
     });
     // OOS separately scales or hides the whole list until its element-show threshold.
     // Keep those writes out of the selected stack; row appearance is now driven by expansion.
