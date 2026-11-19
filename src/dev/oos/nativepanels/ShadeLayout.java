@@ -36,7 +36,7 @@ final class ShadeLayout {
   private boolean measuringExpanded;
   private boolean measuringStackedGrid;
   private float qsExpansion, headerTranslation;
-  float shadeExpansion, scrimTranslation;
+  float shadeExpansion;
   private String warning = "";
 
   ShadeLayout(PanelRuntime runtime) {
@@ -66,7 +66,7 @@ final class ShadeLayout {
     notificationScrim.release();
     shadeExpansion = 0;
     qsExpansion = 0;
-    headerTranslation = scrimTranslation = 0;
+    headerTranslation = 0;
     warning = "";
   }
 
@@ -125,15 +125,18 @@ final class ShadeLayout {
       try {
         viewMotion = fragmentModel.getMethod("getViewTranslationY");
         viewAlpha = fragmentModel.getMethod("getViewAlpha");
-        Method split = fragmentModel.getMethod("isInSplitShade");
         Method fraction = fragmentModel.getMethod("getPanelExpansionFraction");
-        runtime.module.hook(viewAlpha).setId("native-panels:split-qs-alpha").intercept(chain -> {
-          float nativeAlpha = (Float)chain.proceed();
+        runtime.module.hook(viewAlpha).setId("native-panels:qs-pull-alpha").intercept(chain -> {
+          float original = (Float)chain.proceed();
           Object vm = chain.getThisObject();
-          if (vm != model.get() || lockedShade || !(Boolean)split.invoke(vm)) return nativeAlpha;
-          // Reading the Compose fraction here invalidates the graphics layer even on phones
-          // whose stock alpha stays at one throughout a split-shade pull.
-          return splitAlpha(nativeAlpha, (Float)fraction.invoke(vm));
+          if (vm != model.get() || lockedShade) return original;
+          float progress = (Float)fraction.invoke(vm);
+          if (!Float.isFinite(progress) || progress >= 1f) return original;
+          return switch (runtime.combinedQs.expansion.pane()) {
+            case PORTRAIT -> progress > 0f ? 1f : 0f; // The notification edge reveals the tiles.
+            case SPLIT -> ShadePullMotion.splitContentAlpha(progress);
+            default -> original;
+          };
         });
         runtime.module.deoptimize(runtime.type(fragment.getName() + "$$ExternalSyntheticLambda5")
             .getDeclaredMethod("invoke", Object.class));
@@ -165,9 +168,7 @@ final class ShadeLayout {
           qsExpansion = runtime.settingsLaunch.sceneDuringExit(scene, shade);
           ShadeDecor current = decor.get();
           float hostTranslation = (Float) chain.getArg(2);
-          scrimTranslation = Float.isFinite(hostTranslation) ? hostTranslation : 0f;
-          headerTranslation = runtime.settingsLaunch.translationDuringExit(
-              runtime.combinedQs.expansion.gridTranslation(hostTranslation, shade, current == null ? 0 : current.frame.getHeight()));
+          headerTranslation = runtime.settingsLaunch.translationDuringExit(hostTranslation);
           if (current != null) {
             current.expansion(qsExpansion);
             current.headerTranslation(headerTranslation);
@@ -480,7 +481,7 @@ final class ShadeLayout {
 
   void resetGeometry(ShadeDecor owner, boolean rotated) {
     if (owner != decor.get()) return;
-    headerTranslation = scrimTranslation = 0f;
+    headerTranslation = 0f;
     touch.cancelGestures();
     if (rotated) {
       if (runtime.settingsLaunch.isTracking(owner.frame)) runtime.settingsLaunch.interruptForTouch();
@@ -506,11 +507,13 @@ final class ShadeLayout {
     return vm == null || viewAlpha == null ? 0f : (Float)viewAlpha.invoke(vm);
   }
 
-  static float splitAlpha(float nativeAlpha, float shade) {
-    return Float.isFinite(shade) ? Math.min(nativeAlpha, Math.max(0f, shade)) : nativeAlpha;
-  }
-
   boolean isSelected(Object fragment) { return fragment != null && fragment == selected.get(); }
+
+  boolean acceptsPullMotion(Object fragment) throws ReflectiveOperationException {
+    ShadeDecor owner = decor.get();
+    return isSelected(fragment) && owner != null && editing != null && owner.frame.isAttachedToWindow()
+        && !owner.preview.visible() && !runtime.settingsLaunch.isTracking(owner.frame) && !isEditing();
+  }
 
   ShadeDecor compositionOwner(Object composer) {
     ShadeDecor owner = decor.get();
@@ -549,7 +552,7 @@ final class ShadeLayout {
         + "\n" + brightness.report();
   }
 
-  boolean isEditing() throws Exception {
+  boolean isEditing() throws ReflectiveOperationException {
     Fragment fragment = selected.get();
     return fragment == null || (Boolean) editing.invoke(fragment);
   }

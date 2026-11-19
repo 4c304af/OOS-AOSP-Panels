@@ -14,34 +14,15 @@ final class CombinedQsExpansion {
   static final int SHADE = 0, KEYGUARD = 1, SHADE_LOCKED = 2;
   // updateExpansion and the fragment setter run synchronously on the UI thread.
   private boolean closingUpdate;
-  private boolean splitPull;
-  private Object shadeController;
-  private Object splitClipTarget;
   private Object scrollingPanel;
-  private Field height, ambient;
-  private Method appear;
+  private ShadePullMotion motion;
+  private ShadeBackdrop backdrop;
+  private WeakReference<Object> controllerRef = new WeakReference<>(null);
 
-  static float parallax(float proposed, float height, float appear) {
-    if (!Float.isFinite(appear) || !Float.isFinite(height) || height <= 0f || !(proposed < 0f)) return proposed;
-    float fullTravel = -height * (1f - Math.min(1f, appear));
-    // Only correct the OOS full-height interpolation. Keep other ROM paths,
-    // including a host that already supplies AOSP's shorter translation.
-    return Math.abs(proposed - fullTravel) <= .5f ? .175f * fullTravel : proposed;
+  ShadePullMotion.Pane pane() throws ReflectiveOperationException {
+    return motion == null ? ShadePullMotion.Pane.STOCK : motion.pane(controllerRef.get());
   }
 
-  float gridTranslation(float proposed, float shade, int paneHeight) {
-    if (splitPull) return splitTranslation(proposed, shade, paneHeight);
-    if (shadeController == null || proposed >= 0f || height == null || appear == null) return proposed;
-    try {
-      return parallax(proposed, height.getFloat(shadeController), (Float) appear.invoke(ambient.get(shadeController)));
-    } catch (ReflectiveOperationException ignored) { return proposed; }
-  }
-
-  static float splitTranslation(float proposed, float shade, int paneHeight) {
-    if (!(proposed < 0f) || !Float.isFinite(shade) || paneHeight <= 0) return proposed;
-    float remaining = 1f - Math.max(0f, Math.min(1f, shade));
-    return Math.max(proposed, -.175f * paneHeight * remaining);
-  }
   float gridFraction(float qs, float shade) {
     return closingUpdate ? CombinedSettingsLaunch.closingExpansion(qs, shade) : qs;
   }
@@ -49,6 +30,8 @@ final class CombinedQsExpansion {
 
   void reset() {
     current.clear();
+    controllerRef.clear();
+    if (backdrop != null) backdrop.release();
     bridgeError = "";
   }
 
@@ -59,9 +42,12 @@ final class CombinedQsExpansion {
     Field header = Reflect.optionalField(controller, "mShadeHeaderController");
     Field qs = Reflect.field(controller, "mQs");
     Field shadeFraction = Reflect.field(controller, "mShadeExpandedFraction");
-    height = Reflect.optionalField(controller, "mExpansionHeight");
-    ambient = Reflect.optionalField(controller, "mAmbientState");
-    appear = ambient == null ? null : optionalMethod(ambient.getType(), "getExpansionFraction");
+    backdrop = new ShadeBackdrop(runtime);
+    try { backdrop.install(); }
+    catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
+    motion = new ShadePullMotion(runtime);
+    try { motion.install(controller); }
+    catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     Field split = Reflect.optionalField(controller, "mSplitShadeEnabled");
     Field bar = Reflect.field(controller, "mBarState");
     Field dozing = Reflect.field(controller, "mDozing");
@@ -77,13 +63,10 @@ final class CombinedQsExpansion {
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
         .intercept(chain -> {
           boolean previously = closingUpdate;
-          boolean previousSplit = splitPull;
-          Object previousController = shadeController;
           Object controllerInstance = chain.getThisObject();
           boolean ordinaryShade = runtime.combinedQs.layout.isSelected(qs.get(controllerInstance))
               && bar.getInt(controllerInstance) == SHADE;
-          shadeController = ordinaryShade && split != null && !split.getBoolean(controllerInstance) ? controllerInstance : null;
-          splitPull = ordinaryShade && split != null && split.getBoolean(controllerInstance) && !dozing.getBoolean(controllerInstance);
+          if (ordinaryShade && controllerRef.get() != controllerInstance) controllerRef = new WeakReference<>(controllerInstance);
           closingUpdate = false;
           if (panelProvider != null && closing != null && ordinaryShade) {
             try { closingUpdate = (Boolean)closing.invoke(getPanel.invoke(panelProvider.get(chain.getThisObject()))); }
@@ -91,7 +74,7 @@ final class CombinedQsExpansion {
           }
           Object result;
           try { result = chain.proceed(); }
-          finally { closingUpdate = previously; splitPull = previousSplit; shadeController = previousController; }
+          finally { closingUpdate = previously; }
           if (runtime.combinedQs.status != R.string.combined_selected) return result;
           try {
             Object host = chain.getThisObject();
@@ -99,7 +82,7 @@ final class CombinedQsExpansion {
             if (compose.isInstance(target) && runtime.combinedQs.layout.isSelected(target)) {
               Fragment fragment = (Fragment) target;
               if (current.get() != fragment) {
-                reset();
+                bridgeError = "";
                 current = new WeakReference<>(fragment);
               }
               runtime.combinedQs.layout.notificationScrim.bind(host, split != null && split.getBoolean(host));
@@ -133,36 +116,6 @@ final class CombinedQsExpansion {
     if (split == null || expansionEnabled == null) return;
     try { installScrollCallback(runtime, controller, qs, split, bar, dozing, getPanel); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
-    // OOS sets the split fragment invisible until getHeaderTranslation() reaches zero.
-    // Override only the fragment callback from clipping. The controller still applies the
-    // original clip to notifications and handles its own lockscreen and overscroll state.
-    Method clip, setVisible;
-    try {
-      clip = controller.getDeclaredMethod("applyClippingImmediately", int.class, int.class, int.class, int.class, boolean.class);
-      setVisible = compose.getDeclaredMethod("setQsVisible", boolean.class);
-    } catch (NoSuchMethodException missing) { runtime.combinedQs.layout.warn(missing); return; }
-    runtime.module.hook(setVisible)
-        .setId("native-panels:split-qs-visible").intercept(chain -> {
-          if (splitClipTarget != null && splitClipTarget == chain.getThisObject() && !(Boolean)chain.getArg(0))
-            return chain.proceed(new Object[]{true});
-          return chain.proceed();
-        });
-    runtime.module.hook(clip).setId("native-panels:split-qs-clip")
-        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
-          Object previous = splitClipTarget;
-          splitClipTarget = null;
-          try {
-            Object host = chain.getThisObject();
-            if (!(Boolean)chain.getArg(4) && split.getBoolean(host)) {
-              Object target = qs.get(host);
-              if (runtime.combinedQs.layout.isSelected(target)
-                  && showDuringSplitPull(shadeFraction.getFloat(host), bar.getInt(host), dozing.getBoolean(host))
-                  && (Boolean)expansionEnabled.invoke(host)) splitClipTarget = target;
-            }
-            return chain.proceed();
-          } finally { splitClipTarget = previous; }
-        });
-    runtime.module.deoptimize(clip);
   }
 
   private void installScrollCallback(PanelRuntime runtime, Class<?> controller, Field qs, Field split,
@@ -193,10 +146,6 @@ final class CombinedQsExpansion {
     // R8 specialised this snapshotFlow callback to the ROM listener.
     runtime.module.deoptimize(runtime.type("com.android.systemui.qs.composefragment.QSFragmentCompose$setListenerCollections$1$1$$ExternalSyntheticLambda0")
         .getDeclaredMethod("invoke"));
-  }
-
-  static boolean showDuringSplitPull(float shade, int state, boolean dozing) {
-    return state == SHADE && !dozing && Float.isFinite(shade) && shade > 0f;
   }
 
   private static Method optionalMethod(Class<?> controller, String name) {

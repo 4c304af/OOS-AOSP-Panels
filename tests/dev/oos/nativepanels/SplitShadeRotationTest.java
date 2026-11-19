@@ -5,18 +5,13 @@ import org.junit.Test;
 
 public class SplitShadeRotationTest {
   @Test public void unlockedSplitContentTracksSlowPullReversalAndCollapse() {
-    for (float shade : new float[]{0f, .125f, .5f, 1f, .5f, .125f, 0f}) {
-      assertEquals(shade > 0f, CombinedQsExpansion.showDuringSplitPull(shade, CombinedQsExpansion.SHADE, false));
-      assertEquals(shade, ShadeLayout.splitAlpha(1f, shade), 0f);
-      assertEquals(-140f * (1f - shade), CombinedQsExpansion.splitTranslation(-800f, shade, 800), .001f);
+    float[] progress = {0f, .17f, .39f, .525f, .66f, 1f, .525f, .39f, 0f};
+    float[] alpha = {0f, 0f, 0f, .5f, 1f, 1f, .5f, 0f, 0f};
+    for (int i = 0; i < progress.length; i++) {
+      assertEquals(alpha[i], ShadePullMotion.splitContentAlpha(progress[i]), .0001f);
+      assertEquals(Math.round(128f * alpha[i]), NotificationStackScrim.surfaceAlpha(progress[i], 1f, true));
     }
-    assertEquals(.1f, ShadeLayout.splitAlpha(.1f, .4f), 0f);
-    assertEquals(-4f, CombinedQsExpansion.splitTranslation(-4f, .5f, 800), 0f);
-    assertEquals(12f, CombinedQsExpansion.splitTranslation(12f, .75f, 800), 0f);
-    assertFalse(CombinedQsExpansion.showDuringSplitPull(.5f, CombinedQsExpansion.KEYGUARD, false));
-    assertFalse(CombinedQsExpansion.showDuringSplitPull(.5f, CombinedQsExpansion.SHADE_LOCKED, false));
-    assertFalse(CombinedQsExpansion.showDuringSplitPull(.5f, CombinedQsExpansion.SHADE, true));
-    assertFalse(CombinedQsExpansion.showDuringSplitPull(Float.NaN, CombinedQsExpansion.SHADE, false));
+    assertEquals(0f, ShadePullMotion.splitContentAlpha(Float.NaN), 0f);
   }
 
   @Test public void fingerUpScrollsDownAndTheBottomYields() {

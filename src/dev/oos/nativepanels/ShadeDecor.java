@@ -465,7 +465,6 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     boolean changedLock = lockedShade != restricted;
     boolean opening = value && !open && !restricted;
     if (layout != null && value && !restricted && (!open || changedLock)) layout.cards.beginPull();
-    if (layout != null && opening && !changedLock) layout.notificationScrim.beginPull();
     lockedShade = restricted;
     open = value;
     if (layout != null && (!value || restricted)) {
@@ -483,7 +482,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     }
     if (opening && layout != null && !preview.visible() && frame.isAttachedToWindow()) {
       try {
-        if (!layout.isEditing()) layout.notificationScrim.update(frame, layout.shadeExpansion, fraction, layout.scrimTranslation);
+        if (!layout.isEditing()) layout.notificationScrim.update(frame, layout.shadeExpansion, fraction);
       } catch (Exception e) { layout.warn(e); }
     }
     if (frame.isAttachedToWindow()) listen(open);
@@ -688,7 +687,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       splitChrome.showNativeHeader(frame, headerBound && showSplit);
       splitChrome.syncPrivacy(sharedHeader.placed() && statusIcons != null && statusIcons.chipVisible());
       if (lockedShade || editing || preview.visible()) layout.notificationScrim.hide();
-      else layout.notificationScrim.update(frame, layout.shadeExpansion, fraction, layout.scrimTranslation);
+      else layout.notificationScrim.update(frame, layout.shadeExpansion, fraction);
       boolean cardsEnabled = runtime.enabled("notification_cards");
       layout.cards.setEnabled(cardsEnabled);
       if (lockedShade || editing || preview.visible() || !cardsEnabled || (!layout.notificationScrim.isSplit() && fraction >= 1f)) layout.cards.clear();

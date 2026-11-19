@@ -231,7 +231,7 @@ final class SplitShadeChrome {
     private final int[] origin = new int[2], stackAt = new int[2], qsAt = new int[2];
     private final int gutterId, radiusId, sharedId;
     private final View list;
-    private final Rect visibleList = new Rect(), localClip = new Rect();
+    private final Rect localClip = new Rect();
     private final Path listPath = new Path();
     private final Method readPadding, updatePadding;
     private int targetPadding = -1, gutterPx;
@@ -324,7 +324,7 @@ final class SplitShadeChrome {
     }
 
     boolean place(View stack, View frame, int color, int alpha) throws ReflectiveOperationException {
-      if (getWidth() == 0 || getHeight() == 0 || !stack.isShown() || !stack.getLocalVisibleRect(visibleList)) {
+      if (getWidth() == 0 || getHeight() == 0 || stack.getHeight() == 0 || !stack.isShown()) {
         hideColumn();
         return false;
       }
@@ -348,8 +348,11 @@ final class SplitShadeChrome {
       if (header >= end) { hideColumn(); return false; }
       if (sharedId != 0 && stack.getParent() instanceof View parent && parent.getId() == sharedId)
         margins.fit(stack, header, end);
-      int top = Math.max(header, stackAt[1] + visibleList.top);
-      int bottom = Math.min(end, stackAt[1] + visibleList.bottom);
+      // The pane fades at its final size. The list's translated visible rectangle
+      // describes a moving child, not the viewport reserved by the split layout.
+      int listTop = layoutCoordinate(stack, false);
+      int top = Math.max(header, listTop);
+      int bottom = Math.min(end, listTop + stack.getHeight());
       gutterPx = gutter;
       setRowTop(Math.max(0, header + gutter - layoutCoordinate(stack, false)));
       left = Math.max(0, left - origin[0]); right = Math.min(getWidth(), right - origin[0]);
