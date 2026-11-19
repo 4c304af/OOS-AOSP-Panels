@@ -64,9 +64,9 @@ final class CombinedQsExpansion {
         .intercept(chain -> {
           boolean previously = closingUpdate;
           Object controllerInstance = chain.getThisObject();
-          boolean ordinaryShade = runtime.combinedQs.layout.isSelected(qs.get(controllerInstance))
-              && bar.getInt(controllerInstance) == SHADE;
-          if (ordinaryShade && controllerRef.get() != controllerInstance) controllerRef = new WeakReference<>(controllerInstance);
+          boolean selected = runtime.combinedQs.layout.isSelected(qs.get(controllerInstance));
+          if (selected && controllerRef.get() != controllerInstance) controllerRef = new WeakReference<>(controllerInstance);
+          boolean ordinaryShade = selected && bar.getInt(controllerInstance) == SHADE;
           closingUpdate = false;
           if (panelProvider != null && closing != null && ordinaryShade) {
             try { closingUpdate = (Boolean)closing.invoke(getPanel.invoke(panelProvider.get(chain.getThisObject()))); }
@@ -114,8 +114,53 @@ final class CombinedQsExpansion {
         });
 
     if (split == null || expansionEnabled == null) return;
+    try { installLockedClipping(runtime, compose, controller, qs, bar, dozing, expansionEnabled); }
+    catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     try { installScrollCallback(runtime, controller, qs, split, bar, dozing, getPanel); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
+  }
+
+  private void installLockedClipping(PanelRuntime runtime, Class<?> compose, Class<?> controller,
+      Field qs, Field bar, Field dozing, Method expansionEnabled) throws ReflectiveOperationException {
+    Field overscrolling = Reflect.field(controller, "mStackScrollerOverscrolling");
+    Field viewModel = Reflect.field(compose, "viewModel");
+    Method state = Reflect.method(viewModel.getType(), "getExpansionState");
+    Method progress = Reflect.method(state.getReturnType(), "getProgress");
+    Method apply = controller.getDeclaredMethod("applyClippingImmediately",
+        int.class, int.class, int.class, int.class, boolean.class);
+    Method clip = compose.getDeclaredMethod("setFancyClipping",
+        int.class, int.class, int.class, int.class, int.class, boolean.class, boolean.class);
+    runtime.module.hook(clip).setId("native-panels:locked-qs-clipping")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          // OOS enables this exclusion only when QS is visible in single-column shade.
+          Fragment fragment = (Fragment)chain.getThisObject();
+          if (!(Boolean)chain.getArg(5) || !runtime.combinedQs.layout.isSelected(fragment)) return chain.proceed();
+          Object host = controllerRef.get();
+          if (host == null || qs.get(host) != fragment) return chain.proceed();
+          int barState = bar.getInt(host);
+          if ((barState != KEYGUARD && barState != SHADE_LOCKED) || dozing.getBoolean(host)
+              || overscrolling.getBoolean(host)) return chain.proceed();
+          View root = fragment.getView();
+          Object model = viewModel.get(fragment);
+          if (root == null || root.getHeight() <= 0 || root.getRootWindowInsets() == null || model == null
+              || !(Boolean)expansionEnabled.invoke(host)) return chain.proceed();
+          // The locked grid can already be fully expanded while the notification edge stays
+          // near the top. Use the same expansion state that Compose uses to render this grid.
+          float fraction = (Float)progress.invoke(state.invoke(model));
+          int top = (Integer)chain.getArg(1), bottom = (Integer)chain.getArg(3);
+          int adjusted = lockedClipTop(top, bottom, fraction);
+          if (adjusted == top) return chain.proceed();
+          Object[] args = chain.getArgs().toArray();
+          args[1] = adjusted;
+          args[5] = adjusted < bottom;
+          return chain.proceed(args);
+        });
+    runtime.module.deoptimize(apply);
+  }
+
+  static int lockedClipTop(int top, int bottom, float fraction) {
+    if (top >= bottom || bottom <= 0 || !Float.isFinite(fraction) || fraction <= 0f || fraction > 1f) return top;
+    return Math.max(top, Math.round(bottom * fraction));
   }
 
   private void installScrollCallback(PanelRuntime runtime, Class<?> controller, Field qs, Field split,

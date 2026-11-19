@@ -162,6 +162,26 @@ public class CombinedInputTest {
     assertTrue(CombinedTouch.excludes(band, 99, 99));
   }
 
+  @Test public void lockedGridRevealsTilesAndFooterPastTheNotificationEdgeAndClipsAgainOnClose() {
+    int bottom = 1280, notificationEdge = 381;
+    for (float fraction : new float[]{0f, .5f, 1f, .5f, 0f}) {
+      int top = CombinedQsExpansion.lockedClipTop(notificationEdge, bottom, fraction);
+      Path excluded = new Path();
+      if (top < bottom) excluded.addRoundRect(0, top, 582, bottom, 24, 24, Path.Direction.CW);
+      assertEquals(fraction == 0f, CombinedTouch.excludes(excluded, 200, 430));
+      assertEquals(fraction < 1f, CombinedTouch.excludes(excluded, 200, 1210));
+    }
+  }
+
+  @Test public void lockedClipPreservesAnAlreadyClearGridAndUnmeasuredOrIdleStates() {
+    assertEquals(800, CombinedQsExpansion.lockedClipTop(800, 1280, .5f));
+    assertEquals(1280, CombinedQsExpansion.lockedClipTop(1280, 1280, 1f));
+    assertEquals(-24, CombinedQsExpansion.lockedClipTop(-24, 0, 1f));
+    for (float fraction : new float[]{0f, -1f, Float.NaN, Float.POSITIVE_INFINITY}) {
+      assertEquals(-24, CombinedQsExpansion.lockedClipTop(-24, 1280, fraction));
+    }
+  }
+
   @Test public void verticalCollapseRemainsAvailableAfterTileDown() {
     assertFalse(CombinedTouch.verticalDrag(1, 3, 8));
     assertFalse(CombinedTouch.verticalDrag(-60, 22, 8));
