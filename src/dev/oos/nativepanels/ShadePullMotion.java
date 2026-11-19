@@ -1,6 +1,7 @@
 package dev.oos.nativepanels;
 
 import android.view.View;
+import io.github.libxposed.api.XposedInterface;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -16,7 +17,7 @@ final class ShadePullMotion {
   private Field fragment, bar, dozing, transition, policy, split, listController, panel, panelQs, fromHeadsUp, bouncer, pinned, headsUpAway;
   private Method listView, headsUp;
   private Pane rowPass = Pane.STOCK;
-  private boolean measuringHeight, rowsReady;
+  private boolean rowsReady;
   private WeakReference<View> normalized = new WeakReference<>(null);
   private final Set<View> clearedRows = Collections.newSetFromMap(new WeakHashMap<>());
 
@@ -24,6 +25,18 @@ final class ShadePullMotion {
 
   void install(Class<?> qs) throws ReflectiveOperationException {
     Class<?> list = runtime.type("com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout");
+    // The lock screen can collapse this stack before its empty-notification view is bound.
+    try {
+      Method end = Reflect.method(list, "getAppearEndPosition");
+      Method height = Reflect.method(list, "setExpandedHeight", float.class);
+      if (end.getReturnType() == float.class) {
+        XposedInterface.Hooker guard = appearEndHook(list);
+        runtime.module.hook(end).setId("native-panels:unbound-stack-appear-end").intercept(guard);
+        runtime.module.deoptimize(height);
+      }
+    } catch (ReflectiveOperationException missing) {
+      runtime.combinedQs.layout.warn(missing);
+    }
     Class<?> panelType = runtime.type("com.android.systemui.shade.NotificationPanelViewController");
     fragment = Reflect.field(qs, "mQs");
     bar = Reflect.field(qs, "mBarState");
@@ -96,6 +109,21 @@ final class ShadePullMotion {
     return Float.isFinite(progress) ? Math.max(0f, Math.min(1f, (progress - .39f) / (.66f - .39f))) : 0f;
   }
 
+  static XposedInterface.Hooker appearEndHook(Class<?> list) throws ReflectiveOperationException {
+    Field emptyView = Reflect.field(list, "mEmptyShadeView");
+    Field shelf = Reflect.field(list, "mShelf");
+    Method minimum = Reflect.method(list, "getMinExpansionHeight");
+    if (minimum.getReturnType() != int.class) throw new NoSuchMethodException(minimum.toString());
+    return chain -> {
+      Object stack = chain.getThisObject();
+      // OOS getOpeningHeight uses this same minimum when there is no empty view.
+      // Both the minimum and the original end position can dereference the shelf.
+      if (shelf.get(stack) == null) return 0f;
+      if (emptyView.get(stack) == null) return ((Integer)minimum.invoke(stack)).floatValue();
+      return chain.proceed();
+    };
+  }
+
   private void installRows(Class<?> list) throws ReflectiveOperationException {
     Class<?> rows = runtime.type("com.oplus.systemui.panelanimation.notification.OplusNotificationRowShowAnimationExImpl");
     Class<?> ext = runtime.type("com.oplus.systemui.statusbar.notification.stack.NotificationStackScrollLayoutExtImpl");
@@ -107,42 +135,34 @@ final class ShadePullMotion {
     Method stockAlpha = Reflect.method(controller.getType(), "updateAlpha$2");
     Method extView = ext.getDeclaredMethod("getView");
     Method update = list.getDeclaredMethod("updateChildren$1");
-    Method height = list.getDeclaredMethod("setExpandedHeight", float.class);
-    Method layered = rows.getDeclaredMethod("getUseLayeredAnimation");
     Method alpha = rows.getDeclaredMethod("getNotificationAlpha", float.class, float.class);
     Method level = runtime.type("com.oplus.systemui.panelanimation.LevelPositionAlgorithmImpl").getDeclaredMethod("isInPanelAnimation");
-    for (Method pass : new Method[]{height, update}) {
-      runtime.module.hook(pass).setId("native-panels:classic-stack-" + pass.getName()).intercept(chain -> {
-        if (!rowsReady) return chain.proceed();
-        Pane previous = rowPass;
-        boolean wasMeasuring = measuringHeight;
-        View target = (View)chain.getThisObject();
-        try {
-          rowPass = listPane(target);
-          measuringHeight = pass == height;
-          if (rowPass == Pane.STOCK) {
-            if (normalized.get() == target) {
-              normalized.clear();
-              clearedRows.clear();
-            }
-          } else if (normalized.get() != target && controller.get(target) != null) {
-            // A previously hidden OOS list can still have an element-show animator or
-            // its final scale/alpha. Return alpha to the native controller's visibility limits.
-            Object animator = manager.get(extension.get(target));
-            if ((Boolean)running.invoke(animator, target)) cancel.invoke(animator, target, "Combined shade pull");
-            target.setScaleX(1f);
-            target.setScaleY(1f);
-            stockAlpha.invoke(controller.get(target));
-            normalized = new WeakReference<>(target);
+    runtime.module.hook(update).setId("native-panels:classic-stack-rows").intercept(chain -> {
+      if (!rowsReady) return chain.proceed();
+      Pane previous = rowPass;
+      View target = (View)chain.getThisObject();
+      try {
+        rowPass = listPane(target);
+        if (rowPass == Pane.STOCK) {
+          if (normalized.get() == target) {
+            normalized.clear();
             clearedRows.clear();
           }
-          return chain.proceed();
-        } finally { rowPass = previous; measuringHeight = wasMeasuring; }
-      });
-      runtime.module.deoptimize(pass);
-    }
-    runtime.module.hook(layered).setId("native-panels:classic-stack-height").intercept(chain ->
-        rowPass != Pane.STOCK && measuringHeight ? false : chain.proceed());
+        } else if (normalized.get() != target && controller.get(target) != null) {
+          // A previously hidden OOS list can still have an element-show animator or
+          // its final scale/alpha. Return alpha to the native controller's visibility limits.
+          Object animator = manager.get(extension.get(target));
+          if ((Boolean)running.invoke(animator, target)) cancel.invoke(animator, target, "Combined shade pull");
+          target.setScaleX(1f);
+          target.setScaleY(1f);
+          stockAlpha.invoke(controller.get(target));
+          normalized = new WeakReference<>(target);
+          clearedRows.clear();
+        }
+        return chain.proceed();
+      } finally { rowPass = previous; }
+    });
+    runtime.module.deoptimize(update);
     runtime.module.hook(level).setId("native-panels:classic-row-positions").intercept(chain ->
         rowPass != Pane.STOCK ? false : chain.proceed());
     runtime.module.hook(alpha).setId("native-panels:classic-row-alpha").intercept(chain -> switch (rowPass) {
