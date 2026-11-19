@@ -36,7 +36,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
   private final ChargingIndicator chargingIndicator;
   private final ShadeBattery battery;
   private final BatteryAccessibility accessibility;
-  private final float bodyWidth, bodyHeight, capWidth;
+  private final BatteryFrameSize frameSize;
   private final Space attributionSpace;
   private int extraWidth;
   private final Method currentIcon, tintColor, contentOffset;
@@ -89,14 +89,10 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
     currentIcon = Reflect.method(original.getClass(), "getBatteryIcon");
     tintColor = Reflect.method(currentIcon.getReturnType(), "getTintColor");
     contentOffset = Reflect.method(original.getClass(), "getTransXForCoord");
-    Object frame = r.type("com.android.systemui.statusbar.pipeline.battery.shared.ui.BatteryFrame").getField("INSTANCE").get(null);
-    Object body = Reflect.call(frame, "getBodyPathSpec"), cap = Reflect.call(frame, "getCapPathSpec");
-    bodyWidth = body.getClass().getField("viewportWidth").getFloat(body);
-    bodyHeight = body.getClass().getField("viewportHeight").getFloat(body);
-    capWidth = cap.getClass().getField("viewportWidth").getFloat(cap);
+    frameSize = BatteryFrameSize.read(r);
     attributionSpace = new Space(ctx);
     attributionSpace.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-    battery = new ShadeBattery(r, ctx, Color.WHITE, 1f);
+    battery = new ShadeBattery(r, ctx, Color.WHITE);
     battery.view.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     accessibility = new BatteryAccessibility(original,
         description -> ready ? battery.completedDescription(description) : description);
@@ -193,20 +189,6 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
     warn("display", e);
   }
 
-  // Keep the replacement inside the OOS glyph's rectangle at its original aspect ratio.
-  static float fitScale(float width, float height, float slotWidth, float slotHeight) {
-    if (width <= 0 || height <= 0 || slotWidth <= 0 || slotHeight <= 0) return 0f;
-    return .80f * Math.min(slotWidth / width, slotHeight / height);
-  }
-
-  // BatteryMeasurePolicy uses the same frame in both states. Only its trailing
-  // child changes from a cap to an attribution, so fit against the neutral width.
-  static int normalWidth(int height, float bodyWidth, float bodyHeight, float capWidth) {
-    if (height <= 0 || bodyHeight <= 0f) return 0;
-    float unit = height / bodyHeight;
-    return Math.round(bodyWidth * unit) + Math.round(capWidth * unit) + Math.round(unit);
-  }
-
   static int extraWidth(int renderedWidth, int normalWidth, float scale) {
     return (int)Math.ceil(Math.max(0, renderedWidth - normalWidth) * scale);
   }
@@ -263,8 +245,8 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
       bounds.offset(original.getLeft(), original.getTop());
       View view = battery.view;
       if (view.getWidth() <= 0 || view.getHeight() <= 0) return false;
-      int neutralWidth = normalWidth(view.getHeight(), bodyWidth, bodyHeight, capWidth);
-      float scale = fitScale(neutralWidth, view.getHeight(), bounds.width(), bounds.height());
+      int neutralWidth = frameSize.normalWidth(view.getHeight());
+      float scale = BatteryFrameSize.fitScale(neutralWidth, view.getHeight(), bounds.width(), bounds.height());
       if (scale <= 0) return false;
       view.setScaleX(scale);
       view.setScaleY(scale);

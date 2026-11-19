@@ -139,7 +139,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       @Override protected void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config);
         checkOrientation();
-        if (statusIcons != null) statusIcons.updateChipSpacing();
+        if (statusIcons != null) statusIcons.updateSpacing();
       }
     };
     header.setGravity(Gravity.CENTER_VERTICAL);

@@ -14,6 +14,7 @@ final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
   private final View percentFallback;
   private ViewGroup icons;
   private ShadeBattery battery;
+  private View batteryHost;
   private View chip;
   private Object manager, controller, privacy;
   private Method getSlot, addGroup, removeGroup;
@@ -51,9 +52,8 @@ final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
     manager = group;
     try {
       battery = new ShadeBattery(r, context, tint);
-      LinearLayout.LayoutParams batteryParams = params(-2);
-      batteryParams.setMarginStart(Math.round(2f * row.getResources().getDisplayMetrics().density));
-      row.addView(battery.view, row.indexOfChild(percentFallback), batteryParams);
+      batteryHost = QsBatteryView.forHeader(r, header, battery.view);
+      row.addView(batteryHost, row.indexOfChild(percentFallback), params(-2));
       percentFallback.setVisibility(View.GONE);
     } catch (Throwable e) { battery = null; r.combinedQs.layout.warn(e); }
     try {
@@ -64,8 +64,8 @@ final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
       privacy = Reflect.method(pf.getClass(), "createHeaderPrivacyIconsController", type, containerType)
           .invoke(pf, chip, icons);
       row.addView(chip, params(28));
-      updateChipSpacing();
     } catch (Throwable e) { privacy = null; r.combinedQs.layout.warn(e); }
+    updateSpacing();
     tint(tint);
     observeGroup(iconController, r.type("com.android.systemui.statusbar.phone.ui.IconManager"));
   }
@@ -82,7 +82,14 @@ final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
   // logical start so it follows both kinds of indicator and RTL layouts.
   boolean chipVisible() { return listening && chip != null && chip.isShown(); }
 
-  void updateChipSpacing() {
+  void updateSpacing() {
+    if (batteryHost != null && batteryHost.getLayoutParams() instanceof LinearLayout.LayoutParams batteryParams) {
+      int gap = Math.round(2f * row.getResources().getDisplayMetrics().density);
+      if (gap != batteryParams.getMarginStart()) {
+        batteryParams.setMarginStart(gap);
+        batteryHost.setLayoutParams(batteryParams);
+      }
+    }
     if (chip == null || !(chip.getLayoutParams() instanceof LinearLayout.LayoutParams p)) return;
     var res = row.getResources();
     int gapId = res.getIdentifier("qs_privacy_to_header_view_margin", "dimen", Protocol.TARGET);
@@ -173,6 +180,7 @@ final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
     if (manager == null) return;
     try {
       if (active) {
+        if (batteryHost instanceof QsBatteryView fitted) fitted.refreshSlot();
         if (icons.isAttachedToWindow()) attached(true);
         icons.requestLayout();
         icons.postOnAnimation(this::sample);

@@ -38,12 +38,7 @@ final class ShadeBattery {
     });
   }
 
-  private final float sizeFactor;
   ShadeBattery(PanelRuntime r, Context context, int tint) throws Throwable {
-    this(r, context, tint, .75f);
-  }
-  ShadeBattery(PanelRuntime r, Context context, int tint, float sizeFactor) throws Throwable {
-    this.sizeFactor = sizeFactor;
     this.r = r;
     this.context = context;
     Class<?> zero = r.type("kotlin.jvm.functions.Function0"), two = r.type("kotlin.jvm.functions.Function2");
@@ -125,7 +120,7 @@ final class ShadeBattery {
     // rememberViewModel starts collection on composition entry and cancels it on disposal.
     model = Reflect.invoke(remember, null, "BatteryWithEstimate", null, null, create, composer, 0, 6);
     float dp = (float)toDp.invoke(consume.invoke(composer, localDensity), batteryHeight.invoke(companion, context));
-    Object sized = height.invoke(null, modifier, dp * sizeFactor);
+    Object sized = height.invoke(null, modifier, dp);
     String label = (String)description.invoke(null, contentDescription.invoke(model), composer, 0);
     boolean completed = completedCharging();
     if (completed) label = completedDescription(context, (Integer)level.invoke(model), label);
