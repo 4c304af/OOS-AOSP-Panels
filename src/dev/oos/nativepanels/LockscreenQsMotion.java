@@ -1,6 +1,7 @@
 package dev.oos.nativepanels;
 
 import io.github.libxposed.api.XposedInterface;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
@@ -63,6 +64,43 @@ final class LockscreenQsMotion {
 
   static float offset(float progress, float distancePx, float parentTranslation) {
     return (progress - 1f) * distancePx - parentTranslation;
+  }
+
+  interface DirectDrag { boolean active(Object controller) throws ReflectiveOperationException; }
+
+  static XposedInterface.Hooker dragHook(Class<?> translation, Class<?> callback, Class<?> controller,
+      DirectDrag direct) throws ReflectiveOperationException {
+    Field owner = Reflect.field(callback, "f$0");
+    if (owner.getType() != controller) throw new NoSuchFieldException("Unexpected QS drag callback owner");
+    Method tracking = Reflect.method(controller, "isTracking");
+    Field animating = Reflect.field(controller, "mAnimating");
+    Method setHeight = Reflect.method(controller, "setExpansionHeight", float.class);
+    Method getHeight = Reflect.method(controller, "getExpansionHeight");
+    Method getCallback = Reflect.method(translation, "getMblock");
+    Method clearCallback = Reflect.method(translation, "setMblock", getCallback.getReturnType());
+    Method spring = Reflect.method(translation, "getKeyguardHAnimation");
+    Method running = Reflect.method(spring.getReturnType(), "isRunning");
+    Method cancel = Reflect.method(spring.getReturnType(), "cancel");
+    Method startValue = Reflect.method(spring.getReturnType(), "setStartValue", float.class);
+    return chain -> {
+      Object values = chain.getThisObject();
+      Object listener = getCallback.invoke(values);
+      if (!callback.isInstance(listener)) return chain.proceed();
+      Object host = owner.get(listener);
+      float height = (Float)chain.getArg(0);
+      if (host == null || !Float.isFinite(height) || animating.getBoolean(host)
+          || !(Boolean)tracking.invoke(host) || !direct.active(host)) return chain.proceed();
+
+      // OOS has already accepted the touch and calculated the target. Its update listener
+      // would feed setExpansionHeight the delayed spring value. Apply the drag synchronously
+      // and hand the bounded height back to OOS for release or interruption.
+      Object animation = spring.invoke(values);
+      if ((Boolean)running.invoke(animation)) cancel.invoke(animation);
+      clearCallback.invoke(values, (Object)null);
+      setHeight.invoke(host, height);
+      startValue.invoke(animation, getHeight.invoke(host));
+      return null;
+    };
   }
 
   static float chromeAlpha(float progress) {

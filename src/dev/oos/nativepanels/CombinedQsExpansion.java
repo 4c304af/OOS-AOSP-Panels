@@ -131,10 +131,29 @@ final class CombinedQsExpansion {
         });
 
     if (split == null || expansionEnabled == null) return;
+    try { installLockedDrag(runtime, controller, qs, bar, dozing, expansionEnabled); }
+    catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     try { installLockedClipping(runtime, compose, controller, qs, bar, dozing, expansionEnabled); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     try { installScrollCallback(runtime, controller, qs, split, bar, dozing, getPanel); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
+  }
+
+  private void installLockedDrag(PanelRuntime runtime, Class<?> controller, Field qs, Field bar,
+      Field dozing, Method expansionEnabled) throws ReflectiveOperationException {
+    Class<?> effects = runtime.type("com.oplus.systemui.panelanimation.OplusPanelAnimationExImpl");
+    Class<?> translation = runtime.type(effects.getName() + "$PanelTranslationYValue");
+    Class<?> callback = runtime.type(controller.getName() + "$$ExternalSyntheticLambda10");
+    Method move = Reflect.method(translation, "updateKeyguardQs", float.class);
+    Method dragCaller = Reflect.method(effects, "onTouchMoveForKeyguardQs", float.class,
+        runtime.type("kotlin.jvm.functions.Function2"));
+    XposedInterface.Hooker hook = LockscreenQsMotion.dragHook(translation, callback, controller,
+        host -> bar.getInt(host) == KEYGUARD && !dozing.getBoolean(host)
+            && runtime.combinedQs.layout.isSelected(qs.get(host)) && (Boolean)expansionEnabled.invoke(host)
+            && Float.isFinite(runtime.combinedQs.layout.directLockProgress()));
+    runtime.module.hook(move).setId("native-panels:locked-qs-touch-height")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(hook);
+    runtime.module.deoptimize(dragCaller);
   }
 
   private void installLockedClipping(PanelRuntime runtime, Class<?> compose, Class<?> controller,
