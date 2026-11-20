@@ -1,6 +1,8 @@
 package dev.oos.nativepanels;
 
+import android.animation.ValueAnimator;
 import android.app.Fragment;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import io.github.libxposed.api.XposedInterface;
@@ -18,6 +20,10 @@ final class CombinedQsExpansion {
   private Object scrollingPanel;
   private ShadePullMotion motion;
   private ShadeBackdrop backdrop;
+  private Object releasingTouch;
+  private LockscreenQsRelease releaseMotion;
+  private boolean releaseMotionMissing;
+  private long previousCloseMs = -1, appliedCloseMs;
   private WeakReference<Object> controllerRef = new WeakReference<>(null);
 
   ShadePullMotion.Pane pane() throws ReflectiveOperationException {
@@ -131,12 +137,64 @@ final class CombinedQsExpansion {
         });
 
     if (split == null || expansionEnabled == null) return;
+    try { installLockedRelease(runtime, controller, qs, split, bar, dozing, expansionEnabled); }
+    catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     try { installLockedDrag(runtime, controller, qs, bar, dozing, expansionEnabled); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     try { installLockedClipping(runtime, compose, controller, qs, bar, dozing, expansionEnabled); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     try { installScrollCallback(runtime, controller, qs, split, bar, dozing, getPanel); }
     catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
+  }
+
+  private void installLockedRelease(PanelRuntime runtime, Class<?> controller, Field qs, Field split,
+      Field bar, Field dozing, Method enabled) throws ReflectiveOperationException {
+    Method touch = Reflect.method(controller, "handleTouch", MotionEvent.class, boolean.class, boolean.class);
+    Method fling = Reflect.method(controller, "flingQs", float.class, int.class, Runnable.class, boolean.class);
+    Field animator = Reflect.field(controller, "mExpansionAnimator");
+    Field overscrolling = Reflect.field(controller, "mStackScrollerOverscrolling");
+    Field fullShade = Reflect.field(controller, "mTransitioningToFullShadeProgress");
+    Method height = Reflect.method(controller, "getExpansionHeight");
+    Method minimum = Reflect.method(controller, "getMinExpansionHeight");
+    runtime.module.hook(touch).setId("native-panels:locked-qs-touch-release")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          if (((MotionEvent)chain.getArg(0)).getActionMasked() != MotionEvent.ACTION_UP) return chain.proceed();
+          Object previous = releasingTouch;
+          releasingTouch = chain.getThisObject();
+          try { return chain.proceed(); } finally { releasingTouch = previous; }
+        });
+    runtime.module.hook(fling).setId("native-panels:locked-qs-close-motion")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Object host = chain.getThisObject();
+          if (host != releasingTouch || (Integer)chain.getArg(1) != 1 || (Boolean)chain.getArg(3)
+              || releaseMotionMissing || bar.getInt(host) != KEYGUARD || split.getBoolean(host) || dozing.getBoolean(host)
+              || overscrolling.getBoolean(host) || fullShade.getFloat(host) != 0f || !(Boolean)enabled.invoke(host)
+              || !ValueAnimator.areAnimatorsEnabled()) return chain.proceed();
+          Fragment fragment = (Fragment)qs.get(host);
+          if (!runtime.combinedQs.layout.acceptsPullMotion(fragment) || fragment.getView() == null) return chain.proceed();
+          float velocity = (Float)chain.getArg(0);
+          float from = (Float)height.invoke(host), to = (Integer)minimum.invoke(host);
+          if (!Float.isFinite(velocity) || velocity > 0 || !Float.isFinite(from) || from <= to) return chain.proceed();
+          LockscreenQsRelease.Curve curve = null;
+          try {
+            if (releaseMotion == null) releaseMotion = new LockscreenQsRelease(runtime);
+            curve = releaseMotion.closing(from, to, velocity, fragment.getResources().getDisplayMetrics().density);
+          } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            if (releaseMotion == null) releaseMotionMissing = true;
+            runtime.combinedQs.layout.warn(unavailable);
+          }
+          Object previous = animator.get(host);
+          Object result = chain.proceed();
+          // flingQs starts its own height animator synchronously. Its initial sample is
+          // the current height. Change only its remaining trajectory before the next vsync.
+          if (curve != null && animator.get(host) instanceof ValueAnimator next && next != previous && next.isStarted()) {
+            previousCloseMs = next.getDuration();
+            curve.apply(next);
+            appliedCloseMs = curve.millis;
+          }
+          return result;
+        });
+    runtime.module.deoptimize(touch);
   }
 
   private void installLockedDrag(PanelRuntime runtime, Class<?> controller, Field qs, Field bar,
@@ -256,7 +314,8 @@ final class CombinedQsExpansion {
     Fragment fragment = current.get();
     String live = fragment == null ? "no controller update" : describe(fragment);
     // Reflective snapshots are collected only when a diagnostic report is requested.
-    return "QS now: " + live + "\n" + (bridgeError.isEmpty() ? "" : bridgeError + "\n");
+    String close = previousCloseMs < 0 ? "" : " lockedCloseMs(ROM/scene)=" + previousCloseMs + "/" + appliedCloseMs;
+    return "QS now: " + live + close + "\n" + (bridgeError.isEmpty() ? "" : bridgeError + "\n");
   }
 
   private static String describe(Fragment fragment) {
