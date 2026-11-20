@@ -59,6 +59,7 @@ public final class ModuleEntry extends XposedModule {
     BluetoothSettingsNavigation bluetoothNavigation = new BluetoothSettingsNavigation(runtime);
     installPart("bluetooth-settings", bluetoothNavigation::install);
     installPart("bluetooth-tile-settings", bluetoothNavigation::installTile);
+    installPart("bluetooth-dialog-icons", () -> BluetoothDialogIcons.install(runtime));
     installPart("home-battery", runtime.homeBattery::install);
     installPart("combined-qs", () -> runtime.combinedQs.install());
     installPart("combined-tile-clicks", () -> CombinedTileClicks.install(runtime));

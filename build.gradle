@@ -7,8 +7,8 @@ android {
         applicationId 'dev.oos.nativepanels'
         minSdk 30
         targetSdk 35
-        versionCode 78
-        versionName '0.6.66-test'
+        versionCode 79
+        versionName '0.6.67-test'
     }
     buildFeatures { buildConfig true }
     sourceSets {
