@@ -182,7 +182,7 @@ public class CombinedInputTest {
     }
   }
 
-  @Test public void lockedFullGridFadesAndClipsWithTheDragEvenWhileItsSceneIsPinned() throws Exception {
+  @Test public void lockedGridKeepsNativeAlphaAndOnlyTheDirectSceneMovesWithoutAWipe() throws Exception {
     CombinedQsExpansion expansion = new CombinedQsExpansion();
     java.lang.reflect.Field drag = Reflect.field(CombinedQsExpansion.class, "keyguardDrag");
     for (float value : new float[]{1f, .75f, .4f, .65f, .1f, 0f}) {
@@ -190,12 +190,27 @@ public class CombinedInputTest {
       float panel = expansion.panelFraction(1f); // The underlying keyguard window stays open.
       float progress = CombinedQsExpansion.lockedProgress(1f, panel);
       assertEquals(value, progress, 0f);
-      assertEquals(Math.max(381, Math.round(1280 * value)), CombinedQsExpansion.lockedClipTop(381, 1280, progress));
+      float direct = CombinedQsExpansion.lockedClipProgress(1f, panel, value);
+      assertEquals(value == 0f ? 381 : 1280, CombinedQsExpansion.lockedClipTop(381, 1280, direct));
+      float other = CombinedQsExpansion.lockedClipProgress(1f, panel, Float.NaN);
+      assertEquals(Math.max(381, Math.round(1280 * value)), CombinedQsExpansion.lockedClipTop(381, 1280, other));
       assertEquals(Math.min(.2f, value), CombinedQsExpansion.lockedProgress(.2f, panel), 0f);
     }
     drag.setFloat(expansion, Float.NaN);
     assertEquals(.4f, expansion.panelFraction(.4f), 0f);
     assertEquals(.4f, CombinedQsExpansion.lockedProgress(.4f, Float.NaN), 0f);
+  }
+
+  @Test public void directGridStartsAboveTheHeaderAndSliderAndRetracesItsPositionWhenReversed() {
+    for (float density : new float[]{1f, 2.75f}) {
+      for (float p : new float[]{0f, .3f, .58f, .3f, 1f}) {
+        float parent = (p - 1f) * 34f * density;
+        float offset = LockscreenQsMotion.offset(p, LockscreenQsMotion.GRID_DP * density, parent);
+        assertEquals((p - 1f) * 172f * density, offset + parent, .001f);
+        if (p <= .58f) assertEquals(0f, LockscreenQsMotion.chromeAlpha(p), 0f);
+      }
+    }
+    assertEquals(1f, LockscreenQsMotion.chromeAlpha(Float.NaN), 0f);
   }
 
   @Test public void verticalCollapseRemainsAvailableAfterTileDown() {

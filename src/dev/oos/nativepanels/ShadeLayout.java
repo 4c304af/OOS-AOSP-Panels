@@ -26,6 +26,7 @@ final class ShadeLayout {
   private WeakReference<ShadeDecor> decor = new WeakReference<>(null);
   private WeakReference<Object> model = new WeakReference<>(null);
   private Method consume, editing, viewMotion, viewAlpha;
+  private LockscreenQsMotion lockMotion;
   private final ThreadLocal<ShadeDecor> brightnessBox = new ThreadLocal<>();
   private Object localView;
   private final ThreadLocal<ShadeDecor> headerBox = new ThreadLocal<>();
@@ -141,7 +142,9 @@ final class ShadeLayout {
         });
         runtime.module.deoptimize(runtime.type(fragment.getName() + "$$ExternalSyntheticLambda5")
             .getDeclaredMethod("invoke", Object.class));
-      } catch (ReflectiveOperationException missing) { warn(missing); }
+        // The same Compose lambda reads the grid offset and the root alpha.
+        lockMotion = new LockscreenQsMotion(runtime, this, fragmentModel);
+      } catch (ReflectiveOperationException | RuntimeException missing) { warn(missing); }
       try {
         headerSize = runtime.type("androidx.compose.runtime.SnapshotStateKt").getMethod("mutableStateOf$default", Object.class).invoke(null, 0L);
         readHeaderSize = runtime.type("androidx.compose.runtime.State").getMethod("getValue");
@@ -318,8 +321,21 @@ final class ShadeLayout {
         owner.preview.attachState(makeState, readState, writeState);
       }
       brightnessBox.set(owner);
-      try { return chain.proceed(); }
-      finally {
+      try {
+        if (owner != null && lockMotion != null) {
+          Object[] args = chain.getArgs().toArray();
+          int defaults = (Integer)args[6];
+          try { args[1] = lockMotion.sliderModifier((defaults & 2) != 0 ? null : args[1]); }
+          catch (ReflectiveOperationException unavailable) {
+            warn(unavailable);
+            return chain.proceed();
+          }
+          args[5] = (Integer)args[5] & ~0x70;
+          args[6] = defaults & ~2;
+          return chain.proceed(args);
+        }
+        return chain.proceed();
+      } finally {
         if (previous == null) brightnessBox.remove();
         else brightnessBox.set(previous);
       }
@@ -502,6 +518,12 @@ final class ShadeLayout {
   float contentTranslation() throws ReflectiveOperationException {
     Object vm = model.get();
     return vm == null || viewMotion == null ? Float.NaN : (Float) viewMotion.invoke(vm);
+  }
+
+  Object selectedModel() { return model.get(); }
+
+  float directLockProgress() throws ReflectiveOperationException {
+    return lockMotion == null ? Float.NaN : lockMotion.progress(model.get());
   }
 
   float qsAlpha() throws Exception {

@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.os.BatteryManager;
+import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextClock;
@@ -193,17 +194,40 @@ public class ShadeDecorTest {
     FrameLayout content = decor.createHeaderHost(c);
     TextClock big = (TextClock)content.getChildAt(1);
     TextClock small = (TextClock)((LinearLayout)content.getChildAt(0)).getChildAt(0);
-    var position = ShadeDecor.class.getDeclaredMethod("positionHeader", boolean.class);
-    position.setAccessible(true);
     decor.expansion(1f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(android.view.View.VISIBLE, big.getVisibility());
     assertTrue(big.getTextSize() > small.getTextSize() * 2);
     assertEquals(0f, small.getAlpha(), .001f);
     decor.expansion(0f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(android.view.View.INVISIBLE, big.getVisibility());
     assertEquals(1f, small.getAlpha(), .001f);
+    decor.dispose();
+  }
+
+  @Test public void directLockPullMovesAndFadesTheExpandedClockWithoutMorphingFromTheSmallClock() {
+    Context context = RuntimeEnvironment.getApplication();
+    ShadeDecor decor = new ShadeDecor(new FrameLayout(context), null, null);
+    decor.install();
+    FrameLayout host = decor.createHeaderHost(context);
+    View clock = host.getChildAt(1), status = host.getChildAt(0);
+    decor.positionHeader(1f, 0f);
+    float restingClock = clock.getTranslationY(), restingStatus = status.getTranslationY();
+    float density = context.getResources().getDisplayMetrics().density;
+    for (float p : new float[]{.25f, .58f, .79f, .93f, .79f, .25f, 1f}) {
+      float inherited = -12 * (1 - p) * density;
+      decor.positionHeader(p, inherited);
+      assertEquals(restingClock - (1 - p) * Math.round(48 * density), clock.getTranslationY() + inherited, .001f);
+      assertEquals(restingStatus - (1 - p) * Math.round(72 * density), status.getTranslationY() + inherited, .001f);
+      float alpha = Math.max(0f, (p - .58f) / .42f);
+      assertEquals(alpha, clock.getAlpha() * p, .001f);
+      assertEquals(alpha, status.getAlpha() * p, .001f);
+      assertEquals(1f, clock.getScaleY(), .001f);
+    }
+    decor.positionHeader(Float.NaN, 0);
+    assertEquals(View.INVISIBLE, clock.getVisibility());
+    assertEquals(1f, status.getAlpha(), .001f);
     decor.dispose();
   }
 

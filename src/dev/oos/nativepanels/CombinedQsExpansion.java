@@ -164,7 +164,9 @@ final class CombinedQsExpansion {
               || !(Boolean)expansionEnabled.invoke(host)) return chain.proceed();
           // The locked grid can already be fully expanded while the notification edge stays
           // near the top. Use the same expansion state that Compose uses to render this grid.
-          float fraction = lockedProgress((Float)progress.invoke(state.invoke(model)), (Float)panelFraction.invoke(model));
+          float scene = (Float)progress.invoke(state.invoke(model));
+          float panel = (Float)panelFraction.invoke(model);
+          float fraction = lockedClipProgress(scene, panel, runtime.combinedQs.layout.directLockProgress());
           int top = (Integer)chain.getArg(1), bottom = (Integer)chain.getArg(3);
           int adjusted = lockedClipTop(top, bottom, fraction);
           if (adjusted == top) return chain.proceed();
@@ -183,6 +185,12 @@ final class CombinedQsExpansion {
 
   static float lockedProgress(float original, float panel) {
     return Float.isFinite(panel) && panel >= 0f && panel <= 1f ? Math.min(original, panel) : original;
+  }
+
+  static float lockedClipProgress(float scene, float panel, float directLockProgress) {
+    // The direct scene brings a full grid in from above. A second bottom-up mask
+    // would slice through moving rows and the footer. Restore the native edge at rest.
+    return directLockProgress > 0f && directLockProgress <= 1f ? scene : lockedProgress(scene, panel);
   }
 
   private void installScrollCallback(PanelRuntime runtime, Class<?> controller, Field qs, Field split,

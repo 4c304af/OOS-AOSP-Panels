@@ -352,26 +352,31 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     headerHost.setTranslationY(remainingTranslation(headerTranslation, inherited));
   }
 
-  private void positionHeader(boolean visible) {
-    header.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
-    float p = splitLayout() ? 0f : fraction;
+  void positionHeader(float lockProgress, float parentTranslation) {
+    header.setVisibility(View.VISIBLE);
+    boolean direct = Float.isFinite(lockProgress);
+    float p = direct ? 1f : splitLayout() ? 0f : fraction;
     int extra = expandedHeight() - headerHeight();
-    header.setTranslationY(extra * p);
+    float opacity = LockscreenQsMotion.chromeAlpha(lockProgress);
+    if (!sharedHeader.placed()) header.setAlpha(opacity);
+    header.setTranslationY(extra * p + (direct
+        ? LockscreenQsMotion.offset(lockProgress, dp(LockscreenQsMotion.HEADER_DP), parentTranslation) : 0f));
     clock.setAlpha(1f - p);
     clock.setImportantForAccessibility(p < 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     float dateOpacity = p < .14f ? 1f - p / .14f : Math.max(0f, (p - .58f) / .42f);
     date.setAlpha(dateOpacity);
     date.setTranslationX((header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? 1 : -1)
         * (clock.getWidth() + dp(10)) * p);
-    expandedClock.setVisibility(visible && p > 0f ? View.VISIBLE : View.INVISIBLE);
+    expandedClock.setVisibility(p > 0f ? View.VISIBLE : View.INVISIBLE);
     expandedClock.setImportantForAccessibility(p >= 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-    expandedClock.setAlpha(p);
+    expandedClock.setAlpha(p * opacity);
     float scale = (1f + (clockScale - 1f) * p) / clockScale;
     expandedClock.setPivotX(frame.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? expandedClock.getWidth() : 0f);
     expandedClock.setPivotY(expandedClock.getHeight() / 2f);
     expandedClock.setScaleX(scale);
     expandedClock.setScaleY(scale);
-    expandedClock.setTranslationY(top);
+    expandedClock.setTranslationY(top + (direct
+        ? LockscreenQsMotion.offset(lockProgress, dp(LockscreenQsMotion.CLOCK_DP), parentTranslation) : 0f));
   }
 
   void install() {
@@ -737,7 +742,9 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         lastSharedWidth = header.getWidth();
         lastSharedHeight = sharedHeader.height;
       }
-      positionHeader(true);
+      float lockProgress = lockedShade && !preview.visible() ? layout.directLockProgress() : Float.NaN;
+      float inherited = Float.isFinite(lockProgress) ? layout.contentTranslation() : 0f;
+      positionHeader(lockProgress, inherited);
       if (!lockedShade && !buttons.isEmpty() && resolver == null && listening
           && android.os.SystemClock.uptimeMillis() >= retryBrightnessAt) bindBrightness();
     } catch (Exception e) {
