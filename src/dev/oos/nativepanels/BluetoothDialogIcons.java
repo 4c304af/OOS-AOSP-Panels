@@ -4,10 +4,14 @@ import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.Pair;
 import io.github.libxposed.api.XposedInterface;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 final class BluetoothDialogIcons {
@@ -46,6 +50,30 @@ final class BluetoothDialogIcons {
         });
     runtime.module.deoptimize(enter);
     runtime.module.deoptimize(getIcon);
+
+    // Both cached and freshly loaded product photos reach the dialog in this wrapper.
+    Class<?> artwork = runtime.type("com.android.settingslib.widget.AdaptiveOutlineDrawable");
+    Field bitmap = Reflect.field(artwork, "mBitmap");
+    Field mask = Reflect.field(artwork, "mPath");
+    Field stroke = Reflect.field(artwork, "mOutlinePaint");
+    Field inset = Reflect.field(artwork, "mInsetPx");
+    Method createItem = Reflect.method(runtime.type("com.android.systemui.bluetooth.qsdialog.DeviceItemFactory$Companion"),
+        "createDeviceItem", cached, runtime.type("com.android.systemui.bluetooth.qsdialog.DeviceItemType"),
+        String.class, int.class, String.class, boolean.class, int.class, int.class);
+    runtime.module.hook(getIcon).setId("native-panels:bluetooth-product-icon")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Object original = chain.proceed();
+          if (buildingList.get() != Boolean.TRUE || !(original instanceof Pair<?, ?> icon)
+              || !artwork.isInstance(icon.first)) return original;
+          Object frame = icon.first;
+          if (bitmap.get(frame) instanceof Bitmap photo && !photo.isRecycled()
+              && mask.get(frame) instanceof Path path && !path.isEmpty()
+              && stroke.get(frame) instanceof Paint outline && inset.get(frame) instanceof Integer padding) {
+            return Pair.create(new BluetoothProductIcon(photo, path, outline, padding), icon.second);
+          }
+          return original;
+        });
+    runtime.module.deoptimize(createItem);
   }
 
   static Pair<?, ?> icon(Context context, BluetoothDevice device, Pair<?, ?> original, Method metadata)
