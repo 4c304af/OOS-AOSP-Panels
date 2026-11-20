@@ -4,6 +4,10 @@
 
 [下載 APK（GitHub Releases）](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
 
+## 授權
+
+本專案的原創程式碼採用 [GNU General Public License 第 3 版](LICENSE)（`GPL-3.0-only`）。散布修改版 APK 時，須依 GPLv3 向收件者提供該版本的完整對應原始碼。官方 APK 的對應原始碼可在同一個 GitHub Release 的「Source code」下載。第三方元件與素材依各自的授權條款使用。
+
 ## 參考專案
 
 | 專案 | 在本模組中的用途 |

@@ -423,7 +423,7 @@ final class ShadeLayout {
     Object trackPadding = runtime.type("androidx.compose.foundation.layout.PaddingKt")
         .getMethod("padding-qDBjuR0", modifier, float.class, float.class, float.class, float.class)
         .invoke(null, base, 0f, 0f, 56f, 0f);
-    Method then = modifier.getMethod("then", modifier);
+    BrightnessTrackPadding buttonSpace = new BrightnessTrackPadding(modifier, one, base, trackPadding);
     Method androidView = runtime.type("androidx.compose.ui.viewinterop.AndroidView_androidKt")
         .getMethod("AndroidView", one, modifier, one, composer, int.class, int.class);
     TileColorReader tileColors = tileColorReader(composer);
@@ -438,24 +438,20 @@ final class ShadeLayout {
       ShadeDecor owner = brightnessBox.get();
       if (owner == null || !owner.hasAutomaticBrightness) return chain.proceed();
       Object[] args = chain.getArgs().toArray();
-      if (owner.buttonFactory == null) {
-        owner.buttonFactory = Proxy.newProxyInstance(one.getClassLoader(), new Class<?>[]{one}, (proxy, m, values) -> {
-          return switch (m.getName()) {
-            case "invoke" -> owner.createBrightnessButton((android.content.Context) values[0]);
-            case "equals" -> proxy == values[0];
-            case "hashCode" -> System.identityHashCode(proxy);
-            case "toString" -> "QS automatic brightness";
-            default -> throw new UnsupportedOperationException(m.getName());
-          };
-        });
-      }
-      int defaults = (Integer) args[17];
-      args[9] = then.invoke(trackPadding, (defaults & (1 << 9)) != 0 ? base : args[9]);
-      args[15] = (Integer) args[15] & ~0x70000000;
-      args[17] = defaults & ~(1 << 9);
-      // Scope the insertion to the immediate container-to-track call.
+      boolean insertButton = buttonSpace.reserve(args);
       brightnessBox.remove();
       try {
+        if (!insertButton) return chain.proceed();
+        if (owner.buttonFactory == null) {
+          owner.buttonFactory = Proxy.newProxyInstance(one.getClassLoader(), new Class<?>[]{one}, (proxy, m, values) ->
+              switch (m.getName()) {
+                case "invoke" -> owner.createBrightnessButton((android.content.Context) values[0]);
+                case "equals" -> proxy == values[0];
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "toString" -> "QS automatic brightness";
+                default -> throw new UnsupportedOperationException(m.getName());
+              });
+        }
         Object result = chain.proceed(args);
         // Read the same composition locals as the QS grid. AndroidView's update
         // runs for both an existing button and one created by a restarted scene.

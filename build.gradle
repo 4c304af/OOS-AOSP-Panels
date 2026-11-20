@@ -1,5 +1,12 @@
 plugins { id 'com.android.application' version '8.10.1' }
 
+// Include the same license distributed with the corresponding source in each APK.
+tasks.withType(Sync).configureEach {
+    if (name ==~ /process.+JavaRes/) {
+        from('LICENSE') { into 'META-INF/dev.oos.nativepanels' }
+    }
+}
+
 android {
     namespace 'dev.oos.nativepanels'
     compileSdk 36
@@ -7,8 +14,8 @@ android {
         applicationId 'dev.oos.nativepanels'
         minSdk 30
         targetSdk 35
-        versionCode 84
-        versionName '0.6.72-test'
+        versionCode 85
+        versionName '0.6.73-test'
     }
     buildFeatures { buildConfig true }
     sourceSets {
