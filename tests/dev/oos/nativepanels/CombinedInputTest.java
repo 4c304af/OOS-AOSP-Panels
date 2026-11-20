@@ -182,6 +182,22 @@ public class CombinedInputTest {
     }
   }
 
+  @Test public void lockedFullGridFadesAndClipsWithTheDragEvenWhileItsSceneIsPinned() throws Exception {
+    CombinedQsExpansion expansion = new CombinedQsExpansion();
+    java.lang.reflect.Field drag = Reflect.field(CombinedQsExpansion.class, "keyguardDrag");
+    for (float value : new float[]{1f, .75f, .4f, .65f, .1f, 0f}) {
+      drag.setFloat(expansion, value);
+      float panel = expansion.panelFraction(1f); // The underlying keyguard window stays open.
+      float progress = CombinedQsExpansion.lockedProgress(1f, panel);
+      assertEquals(value, progress, 0f);
+      assertEquals(Math.max(381, Math.round(1280 * value)), CombinedQsExpansion.lockedClipTop(381, 1280, progress));
+      assertEquals(Math.min(.2f, value), CombinedQsExpansion.lockedProgress(.2f, panel), 0f);
+    }
+    drag.setFloat(expansion, Float.NaN);
+    assertEquals(.4f, expansion.panelFraction(.4f), 0f);
+    assertEquals(.4f, CombinedQsExpansion.lockedProgress(.4f, Float.NaN), 0f);
+  }
+
   @Test public void verticalCollapseRemainsAvailableAfterTileDown() {
     assertFalse(CombinedTouch.verticalDrag(1, 3, 8));
     assertFalse(CombinedTouch.verticalDrag(-60, 22, 8));

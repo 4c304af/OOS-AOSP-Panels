@@ -14,6 +14,7 @@ final class CombinedQsExpansion {
   static final int SHADE = 0, KEYGUARD = 1, SHADE_LOCKED = 2;
   // updateExpansion and the fragment setter run synchronously on the UI thread.
   private boolean closingUpdate;
+  private float keyguardDrag = Float.NaN;
   private Object scrollingPanel;
   private ShadePullMotion motion;
   private ShadeBackdrop backdrop;
@@ -25,6 +26,11 @@ final class CombinedQsExpansion {
 
   float gridFraction(float qs, float shade) {
     return closingUpdate ? CombinedSettingsLaunch.closingExpansion(qs, shade) : qs;
+  }
+
+  float panelFraction(float shade) {
+    // The keyguard notification window can remain fully expanded as QS is dismissed.
+    return Float.isFinite(keyguardDrag) ? Math.max(0f, Math.min(1f, keyguardDrag)) : shade;
   }
   private String bridgeError = "";
 
@@ -63,18 +69,29 @@ final class CombinedQsExpansion {
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
         .intercept(chain -> {
           boolean previously = closingUpdate;
+          float previousDrag = keyguardDrag;
           Object controllerInstance = chain.getThisObject();
           boolean selected = runtime.combinedQs.layout.isSelected(qs.get(controllerInstance));
           if (selected && controllerRef.get() != controllerInstance) controllerRef = new WeakReference<>(controllerInstance);
           boolean ordinaryShade = selected && bar.getInt(controllerInstance) == SHADE;
           closingUpdate = false;
+          keyguardDrag = Float.NaN;
           if (panelProvider != null && closing != null && ordinaryShade) {
             try { closingUpdate = (Boolean)closing.invoke(getPanel.invoke(panelProvider.get(chain.getThisObject()))); }
             catch (Throwable e) { runtime.combinedQs.layout.warn(e); }
           }
           Object result;
-          try { result = chain.proceed(); }
-          finally { closingUpdate = previously; }
+          try {
+            if (selected && bar.getInt(controllerInstance) == KEYGUARD && !dozing.getBoolean(controllerInstance)
+                && lockProgress != null) {
+              try { keyguardDrag = (Float)lockProgress.invoke(controllerInstance); }
+              catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
+            }
+            result = chain.proceed();
+          } finally {
+            closingUpdate = previously;
+            keyguardDrag = previousDrag;
+          }
           if (runtime.combinedQs.status != R.string.combined_selected) return result;
           try {
             Object host = chain.getThisObject();
@@ -126,6 +143,7 @@ final class CombinedQsExpansion {
     Field viewModel = Reflect.field(compose, "viewModel");
     Method state = Reflect.method(viewModel.getType(), "getExpansionState");
     Method progress = Reflect.method(state.getReturnType(), "getProgress");
+    Method panelFraction = Reflect.method(viewModel.getType(), "getPanelExpansionFraction");
     Method apply = controller.getDeclaredMethod("applyClippingImmediately",
         int.class, int.class, int.class, int.class, boolean.class);
     Method clip = compose.getDeclaredMethod("setFancyClipping",
@@ -146,7 +164,7 @@ final class CombinedQsExpansion {
               || !(Boolean)expansionEnabled.invoke(host)) return chain.proceed();
           // The locked grid can already be fully expanded while the notification edge stays
           // near the top. Use the same expansion state that Compose uses to render this grid.
-          float fraction = (Float)progress.invoke(state.invoke(model));
+          float fraction = lockedProgress((Float)progress.invoke(state.invoke(model)), (Float)panelFraction.invoke(model));
           int top = (Integer)chain.getArg(1), bottom = (Integer)chain.getArg(3);
           int adjusted = lockedClipTop(top, bottom, fraction);
           if (adjusted == top) return chain.proceed();
@@ -161,6 +179,10 @@ final class CombinedQsExpansion {
   static int lockedClipTop(int top, int bottom, float fraction) {
     if (top >= bottom || bottom <= 0 || !Float.isFinite(fraction) || fraction <= 0f || fraction > 1f) return top;
     return Math.max(top, Math.round(bottom * fraction));
+  }
+
+  static float lockedProgress(float original, float panel) {
+    return Float.isFinite(panel) && panel >= 0f && panel <= 1f ? Math.min(original, panel) : original;
   }
 
   private void installScrollCallback(PanelRuntime runtime, Class<?> controller, Field qs, Field split,

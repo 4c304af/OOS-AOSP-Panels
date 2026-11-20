@@ -36,6 +36,7 @@ import java.util.WeakHashMap;
 
 /** Uses the shade's own background renderer and the existing framework RemoteViews. */
 final class NotificationCards {
+  private final FluidCardClip fluidCards = new FluidCardClip();
   private static final String ROW = "com.android.systemui.statusbar.notification.row.";
   private final Map<View, Card> rows = new IdentityHashMap<>();
   private final Set<ViewGroup> rowParents = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -236,6 +237,8 @@ final class NotificationCards {
         });
     ready = true;
     installOverlayBackgrounds(r);
+    try { fluidCards.install(r, view -> enabled && shadeRoot != null && view.getRootView() == shadeRoot); }
+    catch (ReflectiveOperationException absent) { /* Optional OOS custom-card renderer. */ }
   }
 
   private void installOverlayBackgrounds(PanelRuntime runtime) {
@@ -660,6 +663,7 @@ final class NotificationCards {
 
   private int discover(View view) {
     int found = 0;
+    fluidCards.invalidateIfRow(view);
     if (rowType.isInstance(view)) {
       attached.add(view);
       found++;
@@ -808,6 +812,7 @@ final class NotificationCards {
 
   void clear() {
     if (rows.isEmpty() && shadeRoot == null) return;
+    fluidCards.clear();
     for (Card c : rows.values()) remove(c);
     // OOS can reuse an overlay without another factory call on the next shade pull.
     // Keep only weak factory identity metadata; redraw with native colors while inactive.

@@ -129,8 +129,9 @@ final class ShadeLayout {
         runtime.module.hook(viewAlpha).setId("native-panels:qs-pull-alpha").intercept(chain -> {
           float original = (Float)chain.proceed();
           Object vm = chain.getThisObject();
-          if (vm != model.get() || lockedShade) return original;
+          if (vm != model.get()) return original;
           float progress = (Float)fraction.invoke(vm);
+          if (lockedShade) return CombinedQsExpansion.lockedProgress(original, progress);
           if (!Float.isFinite(progress) || progress >= 1f) return original;
           return switch (runtime.combinedQs.expansion.pane()) {
             case PORTRAIT -> progress > 0f ? 1f : 0f; // The notification edge reveals the tiles.
@@ -164,6 +165,7 @@ final class ShadeLayout {
         if (chain.getThisObject() == selected.get()) {
           float original = (Float) chain.getArg(0);
           float shade = (Float)chain.getArg(1);
+          float panel = runtime.combinedQs.expansion.panelFraction(shade);
           float scene = runtime.combinedQs.expansion.gridFraction(original, shade);
           qsExpansion = runtime.settingsLaunch.sceneDuringExit(scene, shade);
           ShadeDecor current = decor.get();
@@ -173,8 +175,8 @@ final class ShadeLayout {
             current.expansion(qsExpansion);
             current.headerTranslation(headerTranslation);
           }
-          if (original != qsExpansion || headerTranslation != hostTranslation)
-            return chain.proceed(new Object[]{qsExpansion, chain.getArg(1), headerTranslation, chain.getArg(3)});
+          if (original != qsExpansion || headerTranslation != hostTranslation || panel != shade)
+            return chain.proceed(new Object[]{qsExpansion, panel, headerTranslation, chain.getArg(3)});
         }
         return chain.proceed();
       });
