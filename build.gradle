@@ -48,7 +48,8 @@ android {
         unitTests.includeAndroidResources = true
         unitTests.all {
             def proxy = System.getenv('OOS_MAVEN_PROXY')
-            if (proxy) systemProperty 'robolectric.dependency.repo.url', "${proxy}/maven"
+            systemProperty 'robolectric.dependency.repo.url', proxy ? "${proxy}/maven" : 'https://maven-central.storage-download.googleapis.com/maven2'
+            testLogging.exceptionFormat = 'full'
             systemProperty 'robolectric.graphicsMode', 'NATIVE'
         }
     }
