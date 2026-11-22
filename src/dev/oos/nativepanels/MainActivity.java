@@ -284,10 +284,21 @@ public final class MainActivity extends AppCompatActivity {
     hint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
     margin(hint, 8, 8);
     page.addView(hint);
-    MaterialTextView version = label(getString(R.string.test_version, BuildConfig.VERSION_NAME.replace("-test", "")), 12, false);
+    MaterialTextView version = label(getString(R.string.installed_version, BuildConfig.VERSION_NAME), 12, false);
     version.setGravity(Gravity.CENTER);
     version.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
     page.addView(version);
+    MaterialButton check = new MaterialButton(this, null,
+        com.google.android.material.R.attr.materialButtonTonalStyle);
+    check.setText(R.string.check_updates);
+    check.setOnClickListener(v -> new UpdateCheckDialog().showNow(getSupportFragmentManager(), "updates"));
+    margin(check, 12, 0);
+    page.addView(check);
+    MaterialButton license = new MaterialButton(this, null,
+        com.google.android.material.R.attr.materialButtonOutlinedStyle);
+    license.setText(R.string.license_title);
+    license.setOnClickListener(v -> new LicenseDialog().showNow(getSupportFragmentManager(), "license"));
+    page.addView(license);
     updateState();
   }
 
