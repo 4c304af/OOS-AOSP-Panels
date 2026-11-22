@@ -44,7 +44,8 @@ final class CombinedStatusIcons {
     row.addView(icons, row.indexOfChild(percentFallback), params(24));
     manager = group;
     try {
-      battery = new ShadeBattery(r, context, tint);
+      battery = r.statusBar.enabled(context) ? new ShadeBattery(r, context, tint, .80f)
+          : new ShadeBattery(r, context, tint);
       LinearLayout.LayoutParams batteryParams = params(-2);
       batteryParams.setMarginStart(Math.round(2f * row.getResources().getDisplayMetrics().density));
       row.addView(battery.view, row.indexOfChild(percentFallback), batteryParams);

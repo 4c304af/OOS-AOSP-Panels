@@ -17,6 +17,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
   private final PanelRuntime r;
   private final LinearLayout original;
   private final boolean keyguard;
+  private final boolean nativeStatusBar;
   private final View bar;
   private ViewGroup icons;
   private String adjacentSlot = "unknown";
@@ -81,6 +82,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
     this.original = original;
     this.keyguard = keyguard;
     Context ctx = getContext();
+    nativeStatusBar = r.statusBar.enabled(ctx);
     icon = original.requireViewById(ctx.getResources().getIdentifier("battery_icon_view", "id", Protocol.TARGET));
     oldStyle = original.requireViewById(ctx.getResources().getIdentifier("battery_content", "id", Protocol.TARGET));
     int chargeId = ctx.getResources().getIdentifier("battery_charge_icon", "id", Protocol.TARGET);
@@ -189,9 +191,10 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
   }
 
   // Keep the replacement inside the OOS glyph's rectangle at its original aspect ratio.
-  static float fitScale(float width, float height, float slotWidth, float slotHeight) {
+  static float fitScale(float width, float height, float slotWidth, float slotHeight, boolean nativeStatusBar) {
     if (width <= 0 || height <= 0 || slotWidth <= 0 || slotHeight <= 0) return 0f;
-    return .80f * Math.min(slotWidth / width, slotHeight / height);
+    float fit = Math.min(slotWidth / width, slotHeight / height);
+    return .80f * (nativeStatusBar ? Math.min(1f, fit) : fit);
   }
 
   // BatteryMeasurePolicy uses the same frame in both states. Only its trailing
@@ -259,14 +262,14 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
       View view = battery.view;
       if (view.getWidth() <= 0 || view.getHeight() <= 0) return false;
       int neutralWidth = normalWidth(view.getHeight(), bodyWidth, bodyHeight, capWidth);
-      float scale = fitScale(neutralWidth, view.getHeight(), bounds.width(), bounds.height());
+      float scale = fitScale(neutralWidth, view.getHeight(), bounds.width(), bounds.height(), nativeStatusBar);
       if (scale <= 0) return false;
       view.setScaleX(scale);
       view.setScaleY(scale);
       requiredExtraWidth = extraWidth(view.getWidth(), neutralWidth, scale);
       float left = bounds.centerX() - neutralWidth * scale / 2f;
       if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) left -= (view.getWidth() - neutralWidth) * scale;
-      view.setTranslationX(artworkLeft(left, keyguard,
+      view.setTranslationX(artworkLeft(left, keyguard && !nativeStatusBar,
           getLayoutDirection() == LAYOUT_DIRECTION_RTL, getResources().getDisplayMetrics().density));
       view.setTranslationY(bounds.centerY() - view.getHeight() * scale / 2f);
       view.setAlpha(artworkAlpha(color, original.getAlpha(), slot.getAlpha()));
@@ -326,7 +329,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
 
   private void scheduleGap() {
     if (icons == null || pendingGap) return;
-    int desired = cellInset(ready, mobileAdjacent, getResources().getDisplayMetrics().density);
+    int desired = cellInset(ready && !nativeStatusBar, mobileAdjacent, getResources().getDisplayMetrics().density);
     if (!endPadding.needs(desired)) return;
     pendingGap = true;
     post(applyGap);
@@ -334,7 +337,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
 
   private void applyIconGap(boolean cellular) {
     if (icons == null) return;
-    endPadding.set(cellInset(true, cellular, getResources().getDisplayMetrics().density));
+    endPadding.set(cellInset(!nativeStatusBar, cellular, getResources().getDisplayMetrics().density));
   }
 
   // Remember the unmodified OEM value independently of the last value we wrote.
@@ -386,7 +389,8 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
     int unbounded = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
     battery.view.measure(unbounded, unbounded);
     int contentWidth = original.getMeasuredWidth();
-    int widthNeeded = failed ? contentWidth : slotWidth(contentWidth, getResources().getDisplayMetrics().density);
+    int widthNeeded = failed || nativeStatusBar ? contentWidth
+        : slotWidth(contentWidth, getResources().getDisplayMetrics().density);
     setMeasuredDimension(resolveSize(widthNeeded, width), original.getMeasuredHeight());
   }
 

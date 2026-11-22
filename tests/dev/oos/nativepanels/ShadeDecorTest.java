@@ -3,8 +3,13 @@ package dev.oos.nativepanels;
 import static org.junit.Assert.*;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Insets;
+import android.graphics.Rect;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.os.BatteryManager;
+import android.view.DisplayCutout;
+import android.view.View;
+import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextClock;
@@ -228,9 +233,14 @@ public class ShadeDecorTest {
     assertEquals(0, frame.getChildCount());
   }
 
-  @Test public void android17ExpandedHeaderReservesTheGapBelowTheLargeClock() throws Exception {
+  @Test public void android17ExpandedHeaderFitsTheCenterCutoutAndReleasesCompactClockSpace() throws Exception {
     Context context = RuntimeEnvironment.getApplication();
-    ShadeDecor decor = new ShadeDecor(new FrameLayout(context), null, null);
+    float density = context.getResources().getDisplayMetrics().density;
+    int width = Math.round(360f * density);
+    int inset = Math.round(44f * density);
+    FrameLayout frame = new FrameLayout(context);
+    frame.layout(0, 0, width, Math.round(600f * density));
+    ShadeDecor decor = new ShadeDecor(frame, null, null);
     var style = ShadeDecor.class.getDeclaredField("aospStatusBar");
     style.setAccessible(true);
     style.setBoolean(decor, true);
@@ -238,21 +248,50 @@ public class ShadeDecorTest {
     FrameLayout host = decor.createHeaderHost(context);
     TextClock expandedClock = (TextClock) host.getChildAt(1);
     LinearLayout statusRow = (LinearLayout) host.getChildAt(0);
+    TextClock compactClock = (TextClock) statusRow.getChildAt(0);
+    TextClock date = (TextClock) statusRow.getChildAt(1);
+    compactClock.setText("12:34");
     var position = ShadeDecor.class.getDeclaredMethod("positionHeader", boolean.class);
     position.setAccessible(true);
+    var measureInsets = ShadeDecor.class.getDeclaredMethod("measureHeaderInsets", WindowInsets.class);
+    measureInsets.setAccessible(true);
+    Rect center = new Rect(width / 2 - 8, 0, width / 2 + 8, inset);
+    measureInsets.invoke(decor, new WindowInsets.Builder()
+        .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
+        .setDisplayCutout(new DisplayCutout(Insets.of(0, inset, 0, 0), null, center, null, null))
+        .build());
+    assertEquals(inset, statusRow.getPaddingTop());
+    position.invoke(decor, true);
+    host.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(decor.headerHeight(), View.MeasureSpec.EXACTLY));
+    host.layout(0, 0, width, decor.headerHeight());
+    int compactDateWidth = date.getMeasuredWidth();
+
     decor.expansion(1f);
     position.invoke(decor, true);
-
-    float density = context.getResources().getDisplayMetrics().density;
-    assertTrue(host.getLayoutParams().height >= Math.round(120f * density));
+    assertEquals(Math.round(120f * density), host.getLayoutParams().height);
     assertTrue(expandedClock.getLayoutParams().height >= Math.round(48f * density));
     float rowTop = statusRow.getTranslationY() + statusRow.getPaddingTop();
     float clockBottom = expandedClock.getTranslationY() + expandedClock.getLayoutParams().height;
     assertEquals(Math.round(16f * density), rowTop - clockBottom, .001f);
+    host.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(decor.expandedHeight(), View.MeasureSpec.EXACTLY));
+    host.layout(0, 0, width, decor.expandedHeight());
+    assertEquals(View.GONE, compactClock.getVisibility());
+    assertEquals(statusRow.getPaddingLeft(), date.getLeft());
+    assertTrue(date.getMeasuredWidth() > compactDateWidth);
+
+    Rect sideCutout = new Rect(0, 0, center.width(), inset);
+    measureInsets.invoke(decor, new WindowInsets.Builder()
+        .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
+        .setDisplayCutout(new DisplayCutout(Insets.of(0, inset, 0, 0), null, sideCutout, null, null))
+        .build());
+    assertEquals(Math.round(120f * density) + inset, host.getLayoutParams().height);
 
     decor.expansion(0f);
     position.invoke(decor, true);
-    assertEquals(android.view.View.INVISIBLE, expandedClock.getVisibility());
+    assertEquals(View.INVISIBLE, expandedClock.getVisibility());
+    assertEquals(View.VISIBLE, compactClock.getVisibility());
     assertEquals(decor.headerHeight(), host.getLayoutParams().height);
     decor.dispose();
   }

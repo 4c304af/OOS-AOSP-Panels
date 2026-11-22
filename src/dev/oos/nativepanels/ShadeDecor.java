@@ -9,6 +9,7 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.graphics.Insets;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.BatteryManager;
@@ -98,7 +99,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   private final int horizontal, vertical;
   private final int[] location = new int[2];
   private Locale locale;
-  private int top, sideLeft, sideRight, foreground;
+  private int top, expandedTop, sideLeft, sideRight, foreground;
   private boolean open, lockedShade, listening, disposed, automatic;
   private ContentResolver resolver;
   private final ContentObserver observer = new ContentObserver(new Handler(Looper.getMainLooper())) {
@@ -224,7 +225,11 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   boolean isTileGap(int id) { return id != 0 && (id == horizontal || id == vertical); }
 
   int headerHeight() {
-    return top + Math.max(dp(36), Math.round(Math.max(clock.getLineHeight(), battery.getLineHeight()) + dp(8)));
+    return top + statusRowHeight();
+  }
+
+  private int statusRowHeight() {
+    return Math.max(dp(36), Math.max(clock.getLineHeight(), battery.getLineHeight()) + dp(8));
   }
 
   int gridHeaderHeight() { return sharedHeader != null && sharedHeader.placed() ? sharedHeader.reserve : headerHeight(); }
@@ -243,8 +248,9 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   int expandedHeight() {
     if (splitLayout()) return headerHeight();
     if (!aospStatusBar) return headerHeight() + expandedClockHeight();
-    // Android 17 bottom-aligns the 48 dp clock and the date row in a 120 dp header.
-    return Math.max(dp(120), headerHeight() + expandedClockHeight() + dp(16));
+    // The expanded AOSP scene applies cutout padding outside its two content rows.
+    int contentHeight = Math.max(dp(120), statusRowHeight() + expandedClockHeight() + dp(16));
+    return Math.max(headerHeight(), expandedTop + contentHeight);
   }
 
   private int expandedClockHeight() {
@@ -352,12 +358,25 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     float p = splitLayout() ? 0f : fraction;
     int extra = expandedHeight() - headerHeight();
     header.setTranslationY(extra * p);
-    clock.setAlpha(1f - p);
+    clock.setAlpha(aospStatusBar ? Math.max(0f, 1f - 2f * p) : 1f - p);
     clock.setImportantForAccessibility(p < 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     float dateOpacity = p < .14f ? 1f - p / .14f : Math.max(0f, (p - .58f) / .42f);
     date.setAlpha(dateOpacity);
-    date.setTranslationX((header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? 1 : -1)
-        * (clock.getWidth() + dp(10)) * p);
+    if (aospStatusBar) {
+      // Change the row while the date is hidden so its expanded measurement includes
+      // all of the width released by the compact clock.
+      boolean largeClock = p >= 0.5f;
+      clock.setVisibility(largeClock ? View.GONE : View.VISIBLE);
+      LinearLayout.LayoutParams dateParams = (LinearLayout.LayoutParams) date.getLayoutParams();
+      int margin = largeClock ? 0 : dp(10);
+      if (dateParams.getMarginStart() != margin) {
+        dateParams.setMarginStart(margin);
+        date.setLayoutParams(dateParams);
+      }
+    } else {
+      date.setTranslationX((header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? 1 : -1)
+          * (clock.getWidth() + dp(10)) * p);
+    }
     expandedClock.setVisibility(visible && p > 0f ? View.VISIBLE : View.INVISIBLE);
     expandedClock.setImportantForAccessibility(p >= 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     expandedClock.setAlpha(p);
@@ -369,8 +388,8 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     float clockTop = top;
     if (aospStatusBar && p > 0f) {
       float collapsedTop = top + (headerHeight() - top - expandedClockHeight()) / 2f;
-      float expandedTop = top + extra - expandedClockHeight() - dp(16);
-      clockTop = collapsedTop + (expandedTop - collapsedTop) * p;
+      float expandedClockTop = expandedHeight() - statusRowHeight() - expandedClockHeight() - dp(16);
+      clockTop = collapsedTop + (expandedClockTop - collapsedTop) * p;
     }
     expandedClock.setTranslationY(clockTop);
   }
@@ -669,6 +688,48 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     } catch (Throwable e) { layout.warn(e); }
   }
 
+  private static int expandedCutoutInset(WindowInsets window, int frameTop, int windowWidth) {
+    android.view.DisplayCutout cutout = window.getDisplayCutout();
+    if (cutout == null) return 0;
+    Rect topCutout = cutout.getBoundingRectTop();
+    int center = windowWidth / 2;
+    // A center hole-punch sits between the two ends of the expanded header.
+    if (windowWidth > 0 && topCutout.left < center && topCutout.right > center) return 0;
+    return Math.max(0, cutout.getSafeInsetTop() - Math.max(0, frameTop));
+  }
+
+  private void measureHeaderInsets(WindowInsets window) {
+    if (sharedHeader.placed() || window == null) return;
+    Insets insets = window.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout());
+    // Translation during a pull is transient. Reserve the same top space throughout the gesture.
+    int frameTop = SplitShadeChrome.layoutCoordinate(frame, false);
+    int frameLeft = SplitShadeChrome.layoutCoordinate(frame, true);
+    int windowWidth = frame.getRootView().getWidth();
+    int measuredTop = Math.max(0, insets.top - Math.max(0, frameTop));
+    int measuredExpandedTop = aospStatusBar ? expandedCutoutInset(window, frameTop, windowWidth) : 0;
+    int left = Math.max(0, insets.left - frameLeft);
+    int right = Math.max(0, insets.right - (windowWidth - frameLeft - frame.getWidth()));
+    if (splitLayout()) lastSplitInset = measuredTop; else lastPortraitInset = measuredTop;
+    if (!refreshInsets && measuredTop == top && measuredExpandedTop == expandedTop
+        && left == sideLeft && right == sideRight) return;
+
+    refreshInsets = false;
+    top = measuredTop;
+    expandedTop = measuredExpandedTop;
+    sideLeft = left;
+    sideRight = right;
+    header.setPadding(left + dp(16), top, right + dp(16), 0);
+    FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) header.getLayoutParams();
+    params.height = headerHeight();
+    header.setLayoutParams(params);
+    FrameLayout.LayoutParams big = (FrameLayout.LayoutParams) expandedClock.getLayoutParams();
+    big.setMarginStart(dp(16) + (frame.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? right : left));
+    big.height = aospStatusBar ? expandedClockHeight() : expandedHeight() - headerHeight();
+    expandedClock.setLayoutParams(big);
+    updateHostHeight();
+    if (layout != null) layout.measuredHeader(headerHeight(), expandedHeight());
+  }
+
   @Override public boolean onPreDraw() {
     if (preview.visible() && (!frame.hasWindowFocus() || runtime.locked())) preview.reset();
     if (disposed) return true;
@@ -700,33 +761,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         return true;
       }
     } catch (Exception e) { layout.warn(e); }
-    WindowInsets window = frame.getRootWindowInsets();
-    if (!sharedHeader.placed() && window != null) {
-      Insets insets = window.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout());
-      // Translation during a pull is transient. Reserve the same top space throughout the gesture.
-      int frameTop = SplitShadeChrome.layoutCoordinate(frame, false);
-      int frameLeft = SplitShadeChrome.layoutCoordinate(frame, true);
-      int t = Math.max(0, insets.top - Math.max(0, frameTop));
-      int l = Math.max(0, insets.left - frameLeft);
-      int r = Math.max(0, insets.right - (frame.getRootView().getWidth() - frameLeft - frame.getWidth()));
-      if (splitLayout()) lastSplitInset = t; else lastPortraitInset = t;
-      if (refreshInsets || t != top || l != sideLeft || r != sideRight) {
-        refreshInsets = false;
-        top = t;
-        sideLeft = l;
-        sideRight = r;
-        header.setPadding(l + dp(16), t, r + dp(16), 0);
-        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) header.getLayoutParams();
-        params.height = headerHeight();
-        header.setLayoutParams(params);
-        FrameLayout.LayoutParams big = (FrameLayout.LayoutParams) expandedClock.getLayoutParams();
-        big.setMarginStart(dp(16) + (frame.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? r : l));
-        big.height = aospStatusBar ? expandedClockHeight() : expandedHeight() - headerHeight();
-        expandedClock.setLayoutParams(big);
-        updateHostHeight();
-        layout.measuredHeader(headerHeight(), expandedHeight());
-      }
-    }
+    measureHeaderInsets(frame.getRootWindowInsets());
     try {
       if (preview.visible() || splitLayout()) {
         resetContentMotion();
