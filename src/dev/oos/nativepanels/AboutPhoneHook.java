@@ -11,7 +11,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import io.github.libxposed.api.XposedInterface;
-import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -128,9 +127,7 @@ final class AboutPhoneHook {
           Object result = c.proceed();
           Page page = pages.get(c.getThisObject());
           if (page != null) {
-            View root = (View)c.getArg(0);
-            page.root = new WeakReference<>(root);
-            paintPage(page, root, (View)getList.invoke(c.getThisObject()), (View)backdrop.get(c.getThisObject()));
+            applyListFallback((View)getList.invoke(c.getThisObject()), (View)backdrop.get(c.getThisObject()), page.metrics.surface);
           }
           return result;
         });
@@ -138,12 +135,12 @@ final class AboutPhoneHook {
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(c -> {
           Object result = c.proceed();
           Page page = pages.get(c.getThisObject());
-          View root = page == null ? null : page.root.get();
-          if (root != null) {
-            Metrics metrics = Metrics.read(root.getContext());
+          View list = page == null ? null : (View)getList.invoke(c.getThisObject());
+          if (list != null) {
+            Metrics metrics = Metrics.read(list.getContext());
             if (metrics != null) {
               page.metrics = metrics;
-              paintPage(page, root, (View)getList.invoke(c.getThisObject()), (View)backdrop.get(c.getThisObject()));
+              applyListFallback(list, (View)backdrop.get(c.getThisObject()), metrics.surface);
               synchronized (rows) {
                 for (Map.Entry<View, Row> entry : rows.entrySet()) {
                   if (entry.getValue().page == page) style(entry.getKey(), entry.getValue());
@@ -239,10 +236,12 @@ final class AboutPhoneHook {
         horizontalInset.getInt(view));
   }
 
-  private static void paintPage(Page page, View root, View list, View backdrop) {
-    if (backdrop != null) backdrop.setVisibility(View.GONE);
-    root.setBackgroundColor(page.metrics.surface);
-    if (list != null) list.setBackgroundColor(page.metrics.surface);
+  static void applyListFallback(View list, View backdrop, int surface) {
+    // DeviceInfoFragment installs the artwork behind a transparent RecyclerView.
+    // Its visibility decision is already available before the views are attached.
+    if (list != null && (backdrop == null || backdrop.getVisibility() != View.VISIBLE)) {
+      list.setBackgroundColor(surface);
+    }
   }
 
   static boolean matchesScreen(String fragment, String key) { return FRAGMENT.equals(fragment) && SCREEN.equals(key); }
@@ -250,7 +249,6 @@ final class AboutPhoneHook {
   private static final class Page {
     Metrics metrics;
     boolean active = true;
-    WeakReference<View> root = new WeakReference<>(null);
     Page(Metrics metrics) { this.metrics = metrics; }
   }
 
@@ -267,7 +265,7 @@ final class AboutPhoneHook {
     }
   }
 
-  private record Metrics(float outer, float inner, int gap, int sectionGap, int card, int surface) {
+  record Metrics(float outer, float inner, int gap, int sectionGap, int card, int surface) {
     static Metrics read(Context context) {
       Resources r = context.getResources();
       int outer = r.getIdentifier("settingslib_preference_corner_radius", "dimen", SETTINGS);
@@ -276,7 +274,11 @@ final class AboutPhoneHook {
       // Same token as settingslib_expressive_untitled_preference_category's top margin.
       int sectionGap = r.getIdentifier("settingslib_expressive_space_extrasmall6", "dimen", SETTINGS);
       int card = r.getIdentifier("settingslib_materialColorSurfaceBright", "color", SETTINGS);
-      int surface = r.getIdentifier("settingslib_materialColorSurface", "color", SETTINGS);
+      // For a plain light page use the Settings Expressive window color: Surface
+      // itself has the same tone as the bright rows. Keep the existing night palette.
+      boolean dark = (r.getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+      int surface = r.getIdentifier(dark ? "settingslib_materialColorSurface" : "settingslib_materialColorSurfaceContainer",
+          "color", SETTINGS);
       if (outer == 0 || inner == 0 || gap == 0 || sectionGap == 0 || card == 0 || surface == 0) return null;
       try {
         // These are exactly the resources used by SettingsLib's v36 grouped list

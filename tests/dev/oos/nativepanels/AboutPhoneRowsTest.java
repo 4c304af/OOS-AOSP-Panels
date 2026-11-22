@@ -2,14 +2,21 @@ package dev.oos.nativepanels;
 
 import static org.junit.Assert.*;
 
+import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.drawable.ColorDrawable;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -26,6 +33,74 @@ import org.robolectric.annotation.GraphicsMode;
 public class AboutPhoneRowsTest {
   private static AboutPhoneRows.Item item(String key, Object parent) {
     return new AboutPhoneRows.Item(key, parent, false);
+  }
+
+  @Test public void plainListKeepsTheNightPaletteAndSeparatesLightRowsFromThePage() {
+    for (boolean dark : new boolean[]{false, true}) {
+      Context app = RuntimeEnvironment.getApplication();
+      Configuration config = new Configuration(app.getResources().getConfiguration());
+      config.uiMode = (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK)
+          | (dark ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
+      Context themed = app.createConfigurationContext(config);
+      // The v34+ Settings color aliases on the target ROM point to these framework roles.
+      int card = dark ? android.R.color.system_surface_bright_dark : android.R.color.system_surface_bright_light;
+      int container = dark ? android.R.color.system_surface_container_dark : android.R.color.system_surface_container_light;
+      int surface = dark ? android.R.color.system_surface_dark : android.R.color.system_surface_light;
+      Resources resources = new Resources(themed.getAssets(), themed.getResources().getDisplayMetrics(), config) {
+        @Override public int getIdentifier(String name, String type, String pkg) {
+          if (!"com.android.settings".equals(pkg)) return 0;
+          if ("dimen".equals(type)) return android.R.dimen.app_icon_size;
+          return switch (name) {
+            case "settingslib_materialColorSurfaceBright" -> card;
+            case "settingslib_materialColorSurfaceContainer" -> container;
+            case "settingslib_materialColorSurface" -> surface;
+            default -> 0;
+          };
+        }
+      };
+      AboutPhoneHook.Metrics colors = AboutPhoneHook.Metrics.read(new ContextWrapper(themed) {
+        @Override public Resources getResources() { return resources; }
+      });
+      assertNotNull(colors);
+      assertEquals(themed.getColor(dark ? surface : container), colors.surface());
+      assertEquals(themed.getColor(card), colors.card());
+      assertNotEquals(colors.card(), colors.surface());
+    }
+  }
+
+  @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  public void systemArtworkRemainsVisibleThroughTheListOnOpenAndThemeChange() {
+    Context context = RuntimeEnvironment.getApplication();
+    FrameLayout root = new FrameLayout(context);
+    ImageView backdrop = new ImageView(context);
+    View list = new View(context);
+    root.addView(backdrop);
+    root.addView(list);
+    int exact = View.MeasureSpec.makeMeasureSpec(32, View.MeasureSpec.EXACTLY);
+    root.measure(exact, exact);
+    root.layout(0, 0, 32, 32);
+    Bitmap result = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888);
+    Canvas canvas = new Canvas(result);
+    for (int color : new int[]{Color.MAGENTA, Color.BLUE}) {
+      // OOS reuses the ImageView and reinstalls a transparent list background on configuration changes.
+      ColorDrawable transparent = new ColorDrawable(Color.TRANSPARENT);
+      list.setBackground(transparent);
+      backdrop.setImageDrawable(new ColorDrawable(color));
+      backdrop.setVisibility(View.VISIBLE);
+      AboutPhoneHook.applyListFallback(list, backdrop, Color.GRAY);
+      assertSame(transparent, list.getBackground());
+      assertEquals(View.VISIBLE, backdrop.getVisibility());
+      root.draw(canvas);
+      assertEquals(color, result.getPixel(16, 16));
+      backdrop.setVisibility(View.GONE);
+      AboutPhoneHook.applyListFallback(list, backdrop, Color.BLACK);
+      root.draw(canvas);
+      assertEquals(Color.BLACK, result.getPixel(16, 16));
+    }
+    AboutPhoneHook.applyListFallback(list, null, Color.WHITE);
+    root.draw(canvas);
+    assertEquals(Color.WHITE, result.getPixel(16, 16));
+    result.recycle();
   }
 
   @Test public void hardwareUsesVisibleNeighborsInsteadOfStandaloneOemFlags() {
