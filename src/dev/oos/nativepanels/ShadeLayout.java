@@ -33,6 +33,15 @@ final class ShadeLayout {
   private Object headerSize;
   private boolean open, lockedShade;
   private boolean measuringExpanded;
+  private final java.util.Map<Object, WeakReference<ShadeDecor>> compactScrollBodies = new java.util.WeakHashMap<>();
+  private final java.util.Set<Class<?>> compactScrollClasses = new java.util.HashSet<>();
+  private final ThreadLocal<CompactScroller> compactScroller = new ThreadLocal<>();
+  private int compactWeights, compactScrollers;
+  private static final class CompactScroller {
+    final ShadeDecor owner;
+    boolean sized;
+    CompactScroller(ShadeDecor owner) { this.owner = owner; }
+  }
   private float qsExpansion, headerTranslation;
   float shadeExpansion, scrimTranslation;
   private String warning = "";
@@ -58,6 +67,7 @@ final class ShadeLayout {
     qsExpansion = 0;
     headerTranslation = scrimTranslation = 0;
     warning = "";
+    compactScrollBodies.clear();
   }
 
   void warn(Throwable failure) {
@@ -130,8 +140,9 @@ final class ShadeLayout {
           if (headerSize != null && readHeaderSize != null) readHeaderSize.invoke(headerSize);
           if (owner.splitLayout()) return owner.gridHeaderHeight();
         }
-        return owner != null && chain.getThisObject() == model.get()
-            ? Math.max(original, measuringExpanded ? owner.expandedHeight() : owner.headerHeight()) : original;
+        if (owner == null || chain.getThisObject() != model.get()) return original;
+        int measured = measuringExpanded ? owner.expandedHeight() : owner.headerHeight();
+        return owner.compactExpandedLayout() && measuringExpanded ? measured : Math.max(original, measured);
       });
       Method expansion = fragment.getDeclaredMethod("setQsExpansion", float.class, float.class, float.class, float.class);
       runtime.module.hook(expansion).setId("native-panels:slider-expansion").intercept(chain -> {
@@ -167,16 +178,106 @@ final class ShadeLayout {
         if (owner != null) {
           int id = (Integer) chain.getArg(0);
           if (measuringExpanded && id != 0 && id == owner.panelPaddingTop && ownsComposition(owner, chain.getArg(1))) {
-            return expandedPadding((Float) chain.proceed());
+            float original = (Float) chain.proceed();
+            return owner.compactExpandedLayout() ? Math.min(original, 4f) : expandedPadding(original);
           }
           if (owner.isTileGap(id) && ownsComposition(owner, chain.getArg(1))) return 8f;
         }
         return chain.proceed();
       });
       try { installHeaderSlot(fragment, composer); } catch (Exception e) { warn(e); }
+      try { installCompactFooter(fragment, composer); } catch (Exception e) { warn(e); }
       try { media.install(composer); } catch (Exception e) { warn(e); }
       installSlider(composer);
     } catch (Exception e) { warn(e); }
+  }
+
+  private void installCompactFooter(Class<?> fragment, Class<?> composer) throws Exception {
+    Class<?> modifier = runtime.type("androidx.compose.ui.Modifier");
+    Class<?> two = runtime.type("kotlin.jvm.functions.Function2");
+    Class<?> three = runtime.type("kotlin.jvm.functions.Function3");
+    Object base = modifier.getField("Companion").get(null);
+    Class<?> sizes = runtime.type("androidx.compose.foundation.layout.SizeKt");
+    Method fillWidth = sizes.getMethod("fillMaxWidth", modifier, float.class);
+    Method fillSize = sizes.getMethod("fillMaxSize", modifier, float.class);
+    runtime.module.hook(fillSize).setId("native-panels:compact-qs-scroll-height").intercept(chain -> {
+      CompactScroller scope = compactScroller.get();
+      if (scope != null && !scope.sized && scope.owner == decor.get()
+          && scope.owner.compactExpandedLayout() && chain.getArg(0) == base && (Float) chain.getArg(1) == 1f) {
+        // The first modifier of the owned scroller is fillMaxSize. Keep its width
+        // and the original onPlaced/onSizeChanged/verticalScroll chain, so both
+        // the native scroll bounds and pointer coordinates follow its real size.
+        scope.sized = true;
+        compactScrollers++;
+        return fillWidth.invoke(null, base, 1f);
+      }
+      return chain.proceed();
+    });
+    // The ROM's scroller calls the Kotlin default bridge. Restore its call to
+    // fillMaxSize when ART has already inlined that call into the bridge.
+    runtime.module.deoptimize(sizes.getMethod("fillMaxSize$default", modifier,
+        float.class, int.class, Object.class));
+    Class<?> weightType = runtime.type("androidx.compose.foundation.layout.LayoutWeightElement");
+    Method getWeight = weightType.getMethod("getWeight");
+    Method then = modifier.getMethod("then", modifier);
+    Method fold = modifier.getMethod("foldIn", Object.class, two);
+    Class<?> column = runtime.type("androidx.compose.foundation.layout.ColumnScopeInstance");
+    Object columnScope = column.getField("INSTANCE").get(null);
+    Method weight = column.getMethod("weight", modifier, float.class, boolean.class);
+    Class<?> elements = runtime.type("com.android.systemui.qs.shared.ui.QuickSettings$Elements");
+    Object contentKey = elements.getMethod("getQuickSettingsContent").invoke(elements.getField("INSTANCE").get(null));
+    Method element = runtime.type("com.android.compose.animation.scene.content.ContentScopeImpl")
+        .getMethod("Element", runtime.type("com.android.compose.animation.scene.ElementKey"), modifier, three, composer, int.class);
+    runtime.module.hook(element).setId("native-panels:compact-qs-footer").intercept(chain -> {
+      ShadeDecor owner = decor.get();
+      if (!measuringExpanded || owner == null || !owner.compactExpandedLayout()
+          || !contentKey.equals(chain.getArg(0)) || !ownsComposition(owner, chain.getArg(3))) return chain.proceed();
+      bindCompactScroller(chain.getArg(2), owner);
+      Object rebuild = Proxy.newProxyInstance(two.getClassLoader(), new Class<?>[]{two}, (proxy, method, args) ->
+          switch (method.getName()) {
+            case "invoke" -> weightType.isInstance(args[1])
+                ? weight.invoke(columnScope, args[0], getWeight.invoke(args[1]), false)
+                : then.invoke(args[0], args[1]);
+            case "equals" -> proxy == args[0];
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "toString" -> "QS content-sized weight";
+            default -> throw new UnsupportedOperationException(method.getName());
+          });
+      Object[] args = chain.getArgs().toArray();
+      // fill=false preserves the maximum available scroll height while allowing
+      // short content to end next to the native footer. The outer scene still
+      // fills the shade and keeps its original gestures and footer callbacks.
+      args[1] = fold.invoke(args[1], base, rebuild);
+      compactWeights++;
+      return chain.proceed(args);
+    });
+    // R8 can put the scroller body in a static bridge on the fragment.
+    for (Method method : fragment.getDeclaredMethods())
+      if (method.getName().contains("$r8$lambda$")) runtime.module.deoptimize(method);
+  }
+
+  private void bindCompactScroller(Object composable, ShadeDecor owner) throws Exception {
+    java.lang.reflect.Field block = Reflect.optionalField(composable.getClass(), "_block");
+    Object body = block == null ? composable : block.get(composable);
+    if (body == null) return;
+    Class<?> type = body.getClass();
+    if (!compactScrollClasses.contains(type)) {
+      Method invoke = Reflect.method(type, "invoke", Object.class, Object.class, Object.class);
+      runtime.module.hook(invoke).setId("native-panels:compact-scroller:" + type.getName()).intercept(chain -> {
+        WeakReference<ShadeDecor> reference = compactScrollBodies.get(chain.getThisObject());
+        ShadeDecor current = reference == null ? null : reference.get();
+        if (current == null || current != decor.get() || !current.compactExpandedLayout()) return chain.proceed();
+        CompactScroller previous = compactScroller.get();
+        compactScroller.set(new CompactScroller(current));
+        try { return chain.proceed(); }
+        finally { if (previous == null) compactScroller.remove(); else compactScroller.set(previous); }
+      });
+      runtime.module.deoptimize(invoke);
+      compactScrollClasses.add(type);
+    }
+    // Bind the actual block instead of wrapping ComposableLambdaImpl: its own
+    // restart can run independently of the parent Element composition.
+    compactScrollBodies.put(body, new WeakReference<>(owner));
   }
 
   private void installHeaderSlot(Class<?> fragment, Class<?> composer) throws Exception {
@@ -483,7 +584,8 @@ final class ShadeLayout {
 
   String report() {
     ShadeDecor current = decor.get();
-    return current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning);
+    return current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion
+        + " compactWeight/scroll=" + compactWeights + "/" + compactScrollers + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning);
   }
 
   boolean isEditing() throws Exception {

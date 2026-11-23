@@ -1,6 +1,8 @@
 package dev.oos.nativepanels;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
@@ -14,6 +16,14 @@ import org.robolectric.annotation.Config;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35)
 public class Android17StatusBarTest {
+  @Test public void networkTypeRequiresRegisteredCellularService() {
+    assertTrue(Android17StatusBar.allowNetworkType(true, true, false, false));
+    assertFalse(Android17StatusBar.allowNetworkType(false, true, false, false));
+    assertFalse(Android17StatusBar.allowNetworkType(true, false, false, false));
+    assertFalse(Android17StatusBar.allowNetworkType(true, true, true, false));
+    assertFalse(Android17StatusBar.allowNetworkType(true, true, false, true));
+  }
+
   @Test public void replacingArtKeepsTheWrapContentSlotAndCentersTheGlyph() {
     ImageView image = new ImageView(RuntimeEnvironment.getApplication());
     Glyph host = new Glyph(32, 32);

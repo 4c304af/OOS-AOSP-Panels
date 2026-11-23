@@ -7,6 +7,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.DrawableWrapper;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewParent;
 import android.widget.ImageView;
@@ -25,6 +26,10 @@ final class Android17StatusBar {
   private volatile boolean clockStyled;
   private volatile boolean wifiStyled;
   private volatile boolean mobileStyled;
+  private volatile String lastNetworkType = "pending";
+  private volatile WeakReference<Context> mobileContext = new WeakReference<>(null);
+  private NetworkTypeBinding networkTypeBinding;
+  private final AospNetworkTypeArtwork networkTypeArtwork = new AospNetworkTypeArtwork();
 
   Android17StatusBar(PanelRuntime runtime) { this.runtime = runtime; }
 
@@ -43,7 +48,7 @@ final class Android17StatusBar {
 
   String report() {
     return "Android 17 status bar: enabled=" + enabled + " clock=" + clockStyled
-        + " wifi=" + wifiStyled + " mobile=" + mobileStyled;
+        + " wifi=" + wifiStyled + " mobile=" + mobileStyled + " type=" + lastNetworkType;
   }
 
   void installClock() throws ReflectiveOperationException {
@@ -150,6 +155,7 @@ final class Android17StatusBar {
     Method getLevels = cellular.getMethod("getNumberOfLevels");
     Method showExclamation = cellular.getMethod("getShowExclamationMark");
     Method carrierChange = cellular.getMethod("getCarrierNetworkChange");
+    installNetworkType(binding, cellular, carrierChange);
     Class<? extends DrawableWrapper> drawableType =
         runtime.type("com.android.settingslib.graph.SignalDrawable").asSubclass(DrawableWrapper.class);
     Constructor<? extends DrawableWrapper> drawable = drawableType.getConstructor(Context.class);
@@ -159,6 +165,8 @@ final class Android17StatusBar {
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
           Object result = chain.proceed();
           Object model = chain.getArg(0);
+          // Signal transitions also clear a stale RAT label on no-service and satellite changes.
+          networkTypeBinding.refresh(chain.getThisObject());
           if (!cellular.isInstance(model)) return result;
           ImageView icon = (ImageView) iconView.invoke(chain.getThisObject());
           Drawable host = icon.getDrawable();
@@ -178,6 +186,111 @@ final class Android17StatusBar {
           mobileStyled = true;
           return result;
         });
+  }
+
+  private void installNetworkType(Class<?> binding, Class<?> cellular, Method carrierChange)
+      throws ReflectiveOperationException {
+    String models = "com.oplus.systemui.statusbar.pipeline.mobile.ui.viewmodel.";
+    Class<?> provider = runtime.type(models + "OplusCellularIconViewModelImpl");
+    // Initialize the same process-scoped preference before its stateIn flows start collecting.
+    for (Constructor<?> constructor : provider.getDeclaredConstructors()) {
+      if (constructor.getParameterCount() == 6 && constructor.getParameterTypes()[0] == Context.class) {
+        runtime.module.hook(constructor).setId("native-panels:android17-network-context")
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+              Context context = (Context) chain.getArg(0);
+              mobileContext = new WeakReference<>(context);
+              enabled(context);
+              return chain.proceed();
+            });
+      }
+    }
+    Class<?> iconModel = runtime.type("com.android.systemui.statusbar.pipeline.mobile.domain.model.NetworkTypeIconModel");
+    Method nativeText = iconModel.getMethod("getNetworkTypeTextModel");
+    Class<?> transform = runtime.type(models + "OplusCellularIconViewModelImpl$networkTypeText$1");
+    Field currentIcon = Reflect.field(transform, "L$0");
+    runtime.module.hook(transform.getDeclaredMethod("invokeSuspend", Object.class))
+        .setId("native-panels:android17-network-model")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Object result = chain.proceed();
+          Context context = mobileContext.get();
+          if (result != null || context == null || !enabled(context)) return result;
+          // ColorOS gates this text on dataConnected && mobileSubIsDefault (or alwaysShow).
+          // Keep its current carrier-mapped RAT, including actual NR overrides, while Wi-Fi is default.
+          Object icon = currentIcon.get(chain.getThisObject());
+          return icon == null ? null : nativeText.invoke(icon);
+        });
+
+    Class<?> os17 = runtime.type("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding");
+    Class<?> viewModel = runtime.type(models + "OplusMobileIconViewModel");
+    Class<?> textModel = runtime.type("com.android.systemui.statusbar.pipeline.mobile.domain.model.OplusNetworkTypeTextModel");
+    Method bind = os17.getDeclaredMethod("bindNetworkTypeText", textModel);
+    networkTypeBinding = new NetworkTypeBinding(os17, cellular, binding.getMethod("getOplusViewModel"),
+        os17.getMethod("getMobileTypeText"), viewModel.getMethod("getIcon"),
+        viewModel.getMethod("getNetworkTypeText"),
+        runtime.type("kotlinx.coroutines.flow.StateFlow").getMethod("getValue"),
+        Reflect.field(cellular, "isInService"), carrierChange, bind);
+    runtime.module.hook(bind).setId("native-panels:android17-network-text")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Object owner = chain.getThisObject();
+          TextView text = (TextView) networkTypeBinding.text.invoke(owner);
+          if (!enabled(text.getContext())) return chain.proceed();
+          boolean show = networkTypeBinding.allowed(owner, text.getContext());
+          Object result = chain.proceed(new Object[]{show ? chain.getArg(0) : null});
+          networkTypeArtwork.apply(text, runtime.moduleResources(text.getContext()));
+          lastNetworkType = text.getVisibility() == View.VISIBLE && text.length() > 0
+              ? text.getText().toString() : (show ? "empty-native-model" : "hidden-native-state");
+          return result;
+        });
+  }
+
+  static boolean allowNetworkType(boolean cellular, boolean inService, boolean carrierChange,
+      boolean airplane) {
+    return cellular && inService && !carrierChange && !airplane;
+  }
+
+  private final class NetworkTypeBinding {
+    final Class<?> binding;
+    final Class<?> cellular;
+    final Method viewModel;
+    final Method text;
+    final Method icon;
+    final Method networkType;
+    final Method value;
+    final Field inService;
+    final Method carrierChange;
+    final Method bind;
+
+    NetworkTypeBinding(Class<?> binding, Class<?> cellular, Method viewModel, Method text,
+        Method icon, Method networkType, Method value, Field inService,
+        Method carrierChange, Method bind) {
+      this.binding = binding;
+      this.cellular = cellular;
+      this.viewModel = viewModel;
+      this.text = text;
+      this.icon = icon;
+      this.networkType = networkType;
+      this.value = value;
+      this.inService = inService;
+      this.carrierChange = carrierChange;
+      this.bind = bind;
+    }
+
+    boolean allowed(Object owner, Context context) throws ReflectiveOperationException {
+      Object vm = viewModel.invoke(owner);
+      Object signal = value.invoke(icon.invoke(vm));
+      boolean isCellular = cellular.isInstance(signal);
+      return allowNetworkType(isCellular, isCellular && inService.getBoolean(signal),
+          isCellular && (boolean) carrierChange.invoke(signal),
+          Settings.Global.getInt(context.getContentResolver(), Settings.Global.AIRPLANE_MODE_ON, 0) != 0);
+    }
+
+    void refresh(Object owner) throws ReflectiveOperationException {
+      if (!binding.isInstance(owner)) return;
+      TextView view = (TextView) text.invoke(owner);
+      if (!enabled(view.getContext())) return;
+      Object vm = viewModel.invoke(owner);
+      bind.invoke(owner, value.invoke(networkType.invoke(vm)));
+    }
   }
 
   private static boolean hasIntrinsicSize(Drawable drawable) {

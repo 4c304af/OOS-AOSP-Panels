@@ -229,8 +229,12 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   }
 
   private int statusRowHeight() {
+    if (aospStatusBar) return Math.max(dp(28),
+        Math.max(date.getLineHeight(), battery.getLineHeight()) + dp(4));
     return Math.max(dp(36), Math.max(clock.getLineHeight(), battery.getLineHeight()) + dp(8));
   }
+
+  boolean compactExpandedLayout() { return aospStatusBar && !splitLayout(); }
 
   int gridHeaderHeight() { return sharedHeader != null && sharedHeader.placed() ? sharedHeader.reserve : headerHeight(); }
 
@@ -248,8 +252,9 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   int expandedHeight() {
     if (splitLayout()) return headerHeight();
     if (!aospStatusBar) return headerHeight() + expandedClockHeight();
-    // The expanded AOSP scene applies cutout padding outside its two content rows.
-    int contentHeight = Math.max(dp(120), statusRowHeight() + expandedClockHeight() + dp(16));
+    // Reserve the measured rows, a small inter-row gap and the bottom breathing
+    // room. A fixed scene minimum leaves a large void on compact/font-1 layouts.
+    int contentHeight = statusRowHeight() + expandedClockHeight() + dp(8);
     return Math.max(headerHeight(), expandedTop + contentHeight);
   }
 
@@ -357,7 +362,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     header.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
     float p = splitLayout() ? 0f : fraction;
     int extra = expandedHeight() - headerHeight();
-    header.setTranslationY(extra * p);
+    header.setTranslationY((extra - (aospStatusBar ? dp(4) : 0)) * p);
     clock.setAlpha(aospStatusBar ? Math.max(0f, 1f - 2f * p) : 1f - p);
     clock.setImportantForAccessibility(p < 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     float dateOpacity = p < .14f ? 1f - p / .14f : Math.max(0f, (p - .58f) / .42f);
@@ -388,7 +393,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     float clockTop = top;
     if (aospStatusBar && p > 0f) {
       float collapsedTop = top + (headerHeight() - top - expandedClockHeight()) / 2f;
-      float expandedClockTop = expandedHeight() - statusRowHeight() - expandedClockHeight() - dp(16);
+      float expandedClockTop = expandedHeight() - statusRowHeight() - expandedClockHeight() - dp(8);
       clockTop = collapsedTop + (expandedClockTop - collapsedTop) * p;
     }
     expandedClock.setTranslationY(clockTop);

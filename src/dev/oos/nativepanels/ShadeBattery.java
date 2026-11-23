@@ -21,6 +21,7 @@ final class ShadeBattery {
   private final Constructor<?> modelConstructor;
   private final Object interactor, companion, create, levelSource, fullSource, glyphSource, colorSource;
   private final Object normalDark, normalLight;
+  private final BatteryDigitGlyphs boldDigits;
   private Object model;
   private final java.util.Map<Class<?>, Object> themedPalettes = new java.util.HashMap<>();
 
@@ -86,7 +87,12 @@ final class ShadeBattery {
 
     levelSource = function(zero, args -> level.invoke(model));
     fullSource = function(zero, args -> full.invoke(model));
-    glyphSource = function(zero, args -> (boolean)get.invoke(percentState) ? glyphs.invoke(model) : Collections.emptyList());
+    boldDigits = r.statusBar.enabled(context) ? new BatteryDigitGlyphs(r) : null;
+    glyphSource = function(zero, args -> {
+      if (!(boolean)get.invoke(percentState)) return Collections.emptyList();
+      Object nativeGlyphs = glyphs.invoke(model);
+      return boldDigits == null ? nativeGlyphs : boldDigits.apply((java.util.List<?>)nativeGlyphs);
+    });
     colorSource = function(zero, args -> {
       int foreground = (int)get.invoke(tintState);
       Object nativeColors = (CombinedStatusIcons.darkIntensity(foreground) == 0f ? dark : light).invoke(profile.invoke(model));
