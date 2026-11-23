@@ -21,10 +21,10 @@ import org.robolectric.shadows.ShadowLooper;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35)
 public class ModuleUpdateTest {
-  @Test public void openingAndRecreatingUpdatedSettingsCannotCallTheOlderSystemUiReceiver() {
+  @Test public void openingAndRecreatingSettingsUsesTheCompatibleSystemUiReceiver() {
     IntentFilter legacy = new IntentFilter("dev.oos.nativepanels.COMMAND");
-    IntentFilter previous = new IntentFilter("dev.oos.nativepanels.COMMAND." + (BuildConfig.VERSION_CODE - 1));
-    IntentFilter current = new IntentFilter(Protocol.ACTION);
+    IntentFilter previous = new IntentFilter("dev.oos.nativepanels.COMMAND.87");
+    IntentFilter current = new IntentFilter("dev.oos.nativepanels.COMMAND." + BuildConfig.SYSTEM_UI_REVISION);
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup().visible()) {
       ShadowLooper.idleMainLooper();
@@ -36,8 +36,10 @@ public class ModuleUpdateTest {
         if (!Protocol.TARGET.equals(request.getPackage())) continue;
         assertEquals("Opening settings only requests a status", "status", request.getStringExtra("command"));
         assertFalse("The pre-upgrade host must not format new APK resources", legacy.matchAction(request.getAction()));
-        assertFalse("A previous versioned host is also isolated", previous.matchAction(request.getAction()));
-        assertTrue("The currently loaded version can still reply", current.matchAction(request.getAction()));
+        assertFalse("An incompatible legacy channel is isolated", previous.matchAction(request.getAction()));
+        assertTrue("Only the current channel and the compatible 0.6.76 probe are used",
+            current.matchAction(request.getAction()) || ("89".equals(BuildConfig.SYSTEM_UI_REVISION)
+            && "dev.oos.nativepanels.COMMAND.88".equals(request.getAction())));
         statuses++;
       }
       assertTrue(statuses >= 2);

@@ -226,6 +226,17 @@ public class RootRestartTest {
     assertEquals(1, stopped.restartRequests);
   }
 
+  @Test public void launcherRestartTargetsOnlyTheLauncherAfterRootApproval() throws Exception {
+    FakeShell shell = new FakeShell("0", "OK");
+    assertEquals(RootRestart.Result.REQUESTED, RootRestart.runLauncher(shell, 1000, 1000, () -> true));
+    assertTrue(shell.commands().contains("/system/bin/killall -TERM com.android.launcher;"));
+    assertFalse(shell.commands().contains("com.android.systemui"));
+    assertEquals(1, shell.restartRequests);
+    FakeShell denied = new FakeShell("2000", "OK");
+    assertEquals(RootRestart.Result.DENIED, RootRestart.runLauncher(denied, 1000, 1000, () -> true));
+    assertEquals(0, denied.restartRequests);
+  }
+
   /** Simulates root-manager I/O. Never launches su or evaluates the shell payload. */
   private static final class FakeShell extends Process {
     final PipedInputStream input = new PipedInputStream();

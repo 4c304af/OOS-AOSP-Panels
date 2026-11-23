@@ -140,9 +140,9 @@ public class UpdateRestartPromptTest {
     }
   }
 
-  @Test public void observedEarlierVersionPromptsEvenWithoutPackageDates() throws Exception {
+  @Test public void incompatibleEarlierVersionPromptsEvenWithoutPackageDates() throws Exception {
     installDates(0, 0);
-    saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, BuildConfig.VERSION_CODE - 1).commit();
+    saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, 87).commit();
     try (ActivityController<MainActivity> controller = open()) {
       assertTrue(dialog(controller.get()).isShowing());
       assertFalse(restarting(controller.get()));
@@ -155,7 +155,7 @@ public class UpdateRestartPromptTest {
       assertNotNull(prompt(controller.get()));
       // Model saved activity state from the previous APK being restored by
       // Android while its preferences still record that previous version.
-      saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, BuildConfig.VERSION_CODE - 1).commit();
+      saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, 87).commit();
       controller.recreate();
       ShadowLooper.idleMainLooper();
       assertTrue(dialog(controller.get()).isShowing());
@@ -181,18 +181,42 @@ public class UpdateRestartPromptTest {
   }
 
   @Test public void validMigrationDatesCanMoveBackwardsWithTheDeviceClock() {
-    assertTrue(UpdateRestartPrompt.needsPrompt(-1, 61, 2000, 1000));
-    assertFalse(UpdateRestartPrompt.needsPrompt(-1, 61, 1000, 1000));
-    assertFalse(UpdateRestartPrompt.needsPrompt(-1, 61, 0, 1000));
-    assertFalse(UpdateRestartPrompt.needsPrompt(-1, 61, 1000, 0));
+    assertTrue(UpdateRestartPrompt.needsPrompt(null, "61", 2000, 1000));
+    assertFalse(UpdateRestartPrompt.needsPrompt(null, "61", 1000, 1000));
+    assertFalse(UpdateRestartPrompt.needsPrompt(null, "61", 0, 1000));
+    assertFalse(UpdateRestartPrompt.needsPrompt(null, "61", 1000, 0));
   }
 
   @Test public void eachNewVersionPromptsOnceIncludingSkippedReleases() {
-    assertFalse(UpdateRestartPrompt.needsPrompt(61, 61, 1000, 2000));
-    assertTrue(UpdateRestartPrompt.needsPrompt(61, 62, 0, 0));
-    assertFalse(UpdateRestartPrompt.needsPrompt(62, 62, 0, 0));
-    assertTrue(UpdateRestartPrompt.needsPrompt(62, 65, 0, 0));
-    assertFalse(UpdateRestartPrompt.needsPrompt(65, 65, 0, 0));
+    assertFalse(UpdateRestartPrompt.needsPrompt("61", "61", 1000, 2000));
+    assertTrue(UpdateRestartPrompt.needsPrompt("61", "62", 0, 0));
+    assertFalse(UpdateRestartPrompt.needsPrompt("62", "62", 0, 0));
+    assertTrue(UpdateRestartPrompt.needsPrompt("62", "65", 0, 0));
+    assertFalse(UpdateRestartPrompt.needsPrompt("65", "65", 0, 0));
+  }
+
+  @Test public void appOnlyUpgradeUsesTheRunning077ReceiverWithoutARestartPrompt() throws Exception {
+    saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, 89).commit();
+    installDates(1000, 2000);
+    try (ActivityController<MainActivity> controller = open()) {
+      if ("89".equals(BuildConfig.SYSTEM_UI_REVISION)) {
+        assertNull(prompt(controller.get()));
+      } else {
+        assertNotNull(prompt(controller.get()));
+      }
+      assertEquals(BuildConfig.SYSTEM_UI_REVISION, saved.getString(UpdateRestartPrompt.SEEN_REVISION, null));
+    }
+  }
+
+  @Test public void compatibleLiveHostDismissesAnObsoleteRestoredPrompt() throws Exception {
+    installDates(1000, 2000);
+    try (ActivityController<MainActivity> controller = open()) {
+      assertNotNull(prompt(controller.get()));
+      UpdateRestartPrompt.showIfNeeded(controller.get(), true);
+      ShadowLooper.idleMainLooper();
+      assertNull(prompt(controller.get()));
+      assertFalse(restarting(controller.get()));
+    }
   }
 
   private void installDates(long first, long update) throws Exception {

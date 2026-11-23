@@ -29,9 +29,9 @@
     <string name="permission_scope_unavailable">LSPosed is not connected. Enable this module, then reopen this app. If it still cannot connect, select Permission Controller in the module’s scope manually and restart your phone.</string>
     <string name="permission_scope_root_pending">Applying the change. If your root manager shows a prompt, allow this module to use root access.</string>
     <string name="permission_scope_ready">Setup complete. The next time an app asks for camera, location or other permissions, it will use the Android dialog.</string>
-    <string name="permission_scope_root_denied">Root access has not been granted. Allow this module in your root manager, then tap Continue setup. You can also restart your phone to apply the change.</string>
-    <string name="permission_scope_root_timeout">Waiting for root access or applying the change took too long. Check that your root manager allows this module, then tap Continue setup. You can also restart your phone to apply the change.</string>
-    <string name="permission_scope_root_failed">The change could not be applied automatically. Check that this module has root access, then tap Continue setup. You can also restart your phone to apply the change.</string>
+    <string name="permission_scope_root_denied">Root access has not been granted. Allow this module in your root manager, then tap Restart controller. You can also restart your phone to apply the change.</string>
+    <string name="permission_scope_root_timeout">Waiting for root access or applying the change took too long. Check that your root manager allows this module, then tap Restart controller. You can also restart your phone to apply the change.</string>
+    <string name="permission_scope_root_failed">The change could not be applied automatically. Check that this module has root access, then tap Restart controller. You can also restart your phone to apply the change.</string>
     <string name="permission_scope_retry">Continue setup</string>
     <string name="try_hint">Try a panel before replacing its system shortcut.</string>
     <string name="root_pending">Requesting root access…</string>
@@ -171,9 +171,9 @@
     <string name="bluetooth_scope_unavailable">LSPosed is not connected. Enable this module and reopen this app. You can also select Settings and Wireless Settings in its scope manually, then restart your phone.</string>
     <string name="bluetooth_scope_root_pending">Applying the change to Settings. Allow root access if prompted. Bluetooth connections will stay active.</string>
     <string name="bluetooth_scope_ready">Setup complete. Reopen a Bluetooth device’s details from Settings or Quick Settings.</string>
-    <string name="bluetooth_scope_root_denied">Root access has not been granted. Allow this module in your root manager, then tap Continue setup. You can also restart your phone to apply the change.</string>
-    <string name="bluetooth_scope_root_timeout">Applying the change took too long. Check that root access is allowed, then tap Continue setup, or restart your phone.</string>
-    <string name="bluetooth_scope_root_failed">The change could not be applied automatically. Check root access and tap Continue setup, or restart your phone.</string>
+    <string name="bluetooth_scope_root_denied">Root access has not been granted. Allow this module in your root manager, then tap Restart settings apps. You can also restart your phone to apply the change.</string>
+    <string name="bluetooth_scope_root_timeout">Applying the change took too long. Check that root access is allowed, then tap Restart settings apps, or restart your phone.</string>
+    <string name="bluetooth_scope_root_failed">The change could not be applied automatically. Check root access and tap Restart settings apps, or restart your phone.</string>
     <string name="bluetooth_scope_retry">Continue setup</string>
     <string name="about_phone">M3E About phone</string>
     <string name="about_phone_desc">Use Material 3 Expressive styling for About phone while keeping its information and actions. Turn this on, follow the setup prompts, then reopen About phone.</string>
@@ -185,9 +185,9 @@
     <string name="about_scope_unavailable">LSPosed is not connected. Enable this module and reopen this app. You can also select Settings in its scope manually, then restart your phone.</string>
     <string name="about_scope_root_pending">Applying the change to Settings. Allow root access if prompted.</string>
     <string name="about_scope_ready">Setup complete. Reopen About phone in Settings.</string>
-    <string name="about_scope_root_denied">Root access has not been granted. Allow this module, then tap Continue setup, or restart your phone to apply.</string>
-    <string name="about_scope_root_timeout">Applying the change took too long. Check root access and tap Continue setup, or restart your phone.</string>
-    <string name="about_scope_root_failed">The change could not be applied automatically. Check root access and tap Continue setup, or restart your phone.</string>
+    <string name="about_scope_root_denied">Root access has not been granted. Allow this module, then tap Restart Settings, or restart your phone to apply.</string>
+    <string name="about_scope_root_timeout">Applying the change took too long. Check root access and tap Restart Settings, or restart your phone.</string>
+    <string name="about_scope_root_failed">The change could not be applied automatically. Check root access and tap Restart Settings, or restart your phone.</string>
     <string name="about_scope_retry">Continue setup</string>
     <string name="launcher_icons">Refresh icon pack colors</string>
     <string name="launcher_icons_desc">Refresh icon pack colors when the system palette or light/dark appearance changes, including icons chosen individually in System Launcher.</string>
@@ -195,4 +195,10 @@
     <string name="launcher_scope_ready">System Launcher is in scope. Restart the launcher once if you just added it.</string>
     <string name="launcher_scope_setup">Tap Continue setup to add System Launcher, or select it in the module scope in LSPosed.</string>
     <string name="launcher_icons_enable">Enable</string>
+    <string name="restart_permission">Restart controller</string>
+    <string name="restart_bluetooth">Restart settings apps</string>
+    <string name="restart_about">Restart Settings</string>
+    <string name="restart_launcher">Restart launcher</string>
+    <string name="launcher_restarted">Launcher restart requested. Return to the home screen to load the module.</string>
+    <string name="launcher_restart_failed">Could not restart the launcher. Check root access and try again.</string>
 </resources>

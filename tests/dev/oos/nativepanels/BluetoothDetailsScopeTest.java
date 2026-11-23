@@ -284,7 +284,7 @@ public class BluetoothDetailsScopeTest {
     }
   }
 
-  @Test public void savedEnabledScreenHidesSetupUntilAnExplicitApplyFails() {
+  @Test public void savedEnabledScreenOffersRestartAfterScopeIsGranted() {
     setEnabled(true);
     service.packages = List.of(SETTINGS, WIRELESS);
     useApplicationScope();
@@ -294,9 +294,9 @@ public class BluetoothDetailsScopeTest {
       ShadowLooper.idleMainLooper();
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
-      assertEquals(View.GONE, retry(activity).getVisibility());
-      toggle(activity).performClick();
-      toggle(activity).performClick();
+      assertEquals(View.VISIBLE, retry(activity).getVisibility());
+      assertEquals(activity.getString(R.string.restart_bluetooth), ((TextView) retry(activity)).getText().toString());
+      retry(activity).performClick();
       assertEquals(1, restarter.jobs.size());
       restarter.finish(0, RootRestart.Result.DENIED);
       ShadowLooper.idleMainLooper();
@@ -328,12 +328,12 @@ public class BluetoothDetailsScopeTest {
       assertEquals(ADDED, scope.state());
       assertTrue(toggle(activity).isChecked());
       assertEquals(activity.getString(R.string.bluetooth_scope_added), status(activity).getText().toString());
-      assertEquals(View.GONE, retry(activity).getVisibility());
+      assertEquals(View.VISIBLE, retry(activity).getVisibility());
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
       controller.recreate();
       ShadowLooper.idleMainLooper();
-      assertEquals(View.GONE, retry(controller.get()).getVisibility());
+      assertEquals(View.VISIBLE, retry(controller.get()).getVisibility());
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
     }

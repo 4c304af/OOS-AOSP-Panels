@@ -19,26 +19,8 @@ public final class ModuleEntry extends XposedModule {
   // PackageReady supplies the final AppComponentFactory class loader before Application creation.
   @Override
   public void onPackageReady(XposedModuleInterface.PackageReadyParam p) {
-    if (LauncherIconRefresh.PACKAGE.equals(p.getPackageName())) {
-      if (LauncherIconRefresh.PACKAGE.equals(Application.getProcessName())) {
-        installPart("launcher-icons", () -> LauncherIconRefresh.install(this, p.getClassLoader()));
-      }
-      return;
-    }
-    if (PermissionDialogHook.PACKAGE.equals(p.getPackageName())) {
-      installPart("permission-dialogs", () -> new PermissionDialogHook(this, p.getClassLoader()).install());
-      return;
-    }
-    if (BluetoothDetailsSettings.SETTINGS_PACKAGE.equals(p.getPackageName())) {
-      installPart("bluetooth-details-theme", () -> new BluetoothDetailsHook(this, p.getClassLoader()).install());
-      installPart("about-phone-m3e", () -> new AboutPhoneHook(this, p.getClassLoader()).install());
-      return;
-    }
-    if (BluetoothDetailsSettings.WIRELESS_PACKAGE.equals(p.getPackageName())) {
-      installPart("wireless-bluetooth-details", () -> new WirelessBluetoothDetailsHook(this, p.getClassLoader()).install());
-      return;
-    }
     if (Protocol.TARGET.equals(p.getPackageName())) install(p.getClassLoader());
+    else OptionalHostHooks.install(this, p.getPackageName(), p.getClassLoader());
   }
 
   private synchronized void install(ClassLoader loader) {
@@ -242,7 +224,7 @@ public final class ModuleEntry extends XposedModule {
     void run() throws Throwable;
   }
 
-  private void installPart(String key, Install action) {
+  void installPart(String key, Install action) {
     if (installed.contains(key)) return;
     try {
       action.run();

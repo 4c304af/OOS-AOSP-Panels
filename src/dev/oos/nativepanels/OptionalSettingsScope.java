@@ -16,7 +16,10 @@ import java.util.function.BooleanSupplier;
 class OptionalSettingsScope {
   enum State {
     OFF, CONNECTING, MISSING, REQUESTING, ADDED, FAILED, UNAVAILABLE,
-    ROOT_PENDING, READY, ROOT_DENIED, ROOT_TIMEOUT, ROOT_FAILED
+    ROOT_PENDING, READY, ROOT_DENIED, ROOT_TIMEOUT, ROOT_FAILED;
+    boolean canRestart() {
+      return this == ADDED || this == READY || this == ROOT_DENIED || this == ROOT_TIMEOUT || this == ROOT_FAILED;
+    }
   }
 
   interface Observer { void changed(State state); }
@@ -31,10 +34,26 @@ class OptionalSettingsScope {
   interface RestartResult { void completed(RootRestart.Result result); }
   interface Restarter { void restart(BooleanSupplier allowed, RestartResult result); }
 
+  interface RestartCommand { RootRestart.Result run(BooleanSupplier allowed) throws java.io.IOException; }
+
+  static Restarter background(String name, RestartCommand command) {
+    return (allowed, completion) -> {
+      Thread worker = new Thread(() -> {
+        RootRestart.Result result;
+        try { result = command.run(allowed); }
+        catch (java.io.IOException | RuntimeException failure) { result = RootRestart.Result.FAILED; }
+        completion.completed(result);
+      }, name);
+      worker.setDaemon(true);
+      worker.start();
+    };
+  }
+
   private final Context context;
   private final String preference;
   private final List<String> packages;
   private final Restarter restarter;
+  private final boolean restartOnGrant;
   private final Handler main = new Handler(Looper.getMainLooper());
   private final Set<Observer> observers = new LinkedHashSet<>();
   private Backend backend;
@@ -47,6 +66,11 @@ class OptionalSettingsScope {
   };
 
   OptionalSettingsScope(Context context, String preference, List<String> packages, Restarter restarter) {
+    this(context, preference, packages, restarter, true);
+  }
+
+  OptionalSettingsScope(Context context, String preference, List<String> packages, Restarter restarter, boolean restartOnGrant) {
+    this.restartOnGrant = restartOnGrant;
     this.context = context.getApplicationContext();
     this.preference = preference;
     this.packages = List.copyOf(packages);
@@ -199,10 +223,19 @@ class OptionalSettingsScope {
 
   private void applyScope() {
     if (!enabled() || activeRestart != null) return;
-    if (restarter == null) {
-      update(State.READY);
+    if (!restartOnGrant) {
+      update(State.ADDED);
       return;
     }
+    startRestart();
+  }
+
+  void restart() {
+    refresh();
+    if (state.canRestart()) startRestart();
+  }
+
+  private void startRestart() {
     AtomicBoolean ticket = new AtomicBoolean(true);
     activeRestart = ticket;
     update(State.ROOT_PENDING);

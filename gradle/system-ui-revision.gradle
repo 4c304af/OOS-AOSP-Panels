@@ -1,0 +1,44 @@
+import java.security.MessageDigest
+
+// Follow this project's Java classes from the LSPosed entry point. OptionalHostHooks is
+// dispatched only in other processes. An app-only class therefore does not version SystemUI.
+def sources = fileTree('src/dev/oos/nativepanels') { include '*.java'; exclude 'OptionalHostHooks.java' }
+        .collectEntries { [(it.name - '.java'): it] }
+def pending = ['ModuleEntry']
+def host = new TreeMap<String, String>()
+def strings = new TreeSet<String>()
+while (!pending.empty) {
+    String name = pending.pop()
+    if (host.containsKey(name)) continue
+    String source = sources[name].getText('UTF-8').replace('\r\n', '\n')
+    host[name] = source
+    (source =~ /\b[A-Za-z_][A-Za-z_0-9]*\b/).each { word ->
+        if (sources.containsKey(word) && !host.containsKey(word)) pending.add(word)
+    }
+    (source =~ /(?<![\w.])R\.string\.(\w+)/).each { match -> strings.add(match[1]) }
+}
+
+def ids = file('gradle/system-ui-ids.txt').readLines('UTF-8').collectEntries { line ->
+    def (resource, id) = line.split(' = ')
+    [(resource.substring(resource.indexOf('/') + 1)): id]
+}
+strings.each { name ->
+    if (!ids.containsKey(name)) throw new GradleException("Pin the SystemUI string ID for " + name)
+    host["R.string." + name] = ids[name]
+}
+fileTree('res') { include 'values*/strings.xml' }.each { xml ->
+    new XmlParser().parse(xml).string.findAll { strings.contains(it.@name) }.each { node ->
+        host[xml.parentFile.name + '/' + node.@name] = node.text()
+    }
+}
+fileTree('resources/META-INF/xposed').each { host['xposed/' + it.name] = it.getText('UTF-8').trim() }
+def digest = MessageDigest.getInstance('SHA-256')
+host.each { key, value ->
+    digest.update(key.getBytes('UTF-8'))
+    digest.update((byte) 0)
+    digest.update(value.getBytes('UTF-8'))
+    digest.update((byte) 0)
+}
+def revision = digest.digest().encodeHex().toString()
+// This exact set of hooks can talk to the already installed 0.6.77 receiver.
+ext.systemUiRevision = revision == 'cb44b280f00de2468801566f81d4ac82ac6616ceb6d7d26201481d0cc7bded50' ? '89' : revision

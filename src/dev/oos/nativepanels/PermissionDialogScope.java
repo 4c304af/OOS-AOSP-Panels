@@ -1,6 +1,7 @@
 package dev.oos.nativepanels;
 
 import android.content.Context;
+import dev.oos.nativepanels.OptionalSettingsScope.State;
 import android.os.Handler;
 import android.os.Looper;
 import io.github.libxposed.service.XposedService;
@@ -14,11 +15,6 @@ import java.util.function.BooleanSupplier;
 
 /** App-side scope and apply flow. All UI state and observers stay on the main thread. */
 final class PermissionDialogScope {
-  enum State {
-    OFF, CONNECTING, MISSING, REQUESTING, ADDED, FAILED, UNAVAILABLE,
-    ROOT_PENDING, READY, ROOT_DENIED, ROOT_TIMEOUT, ROOT_FAILED
-  }
-
   interface Observer { void changed(State state); }
   interface Result {
     void approved(List<String> packages);
@@ -192,6 +188,11 @@ final class PermissionDialogScope {
     activeRequest = null;
     if (added) restartController();
     else update(State.FAILED);
+  }
+
+  void restart() {
+    refresh();
+    if (state.canRestart()) restartController();
   }
 
   private void restartController() {

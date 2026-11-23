@@ -92,7 +92,7 @@ public class ScopeServiceConnectionTest {
     BluetoothDetailsScope bluetooth = application.bluetoothDetailsScope();
     AboutPhoneScope about = application.aboutPhoneScope();
     ShadowLooper.idleMainLooper();
-    assertEquals(PermissionDialogScope.State.ADDED, permission.state());
+    assertEquals(OptionalSettingsScope.State.ADDED, permission.state());
     assertEquals(BluetoothDetailsScope.State.ADDED, bluetooth.state());
     assertEquals(AboutPhoneScope.State.ADDED, about.state());
     assertEquals(0, cached.requests);
@@ -101,12 +101,12 @@ public class ScopeServiceConnectionTest {
     receive(replacement);
     cached.die();
     ShadowLooper.idleMainLooper();
-    assertEquals(PermissionDialogScope.State.ADDED, permission.state());
+    assertEquals(OptionalSettingsScope.State.ADDED, permission.state());
     assertEquals(BluetoothDetailsScope.State.ADDED, bluetooth.state());
     assertEquals(AboutPhoneScope.State.ADDED, about.state());
     replacement.die();
     ShadowLooper.idleMainLooper();
-    assertEquals(PermissionDialogScope.State.UNAVAILABLE, permission.state());
+    assertEquals(OptionalSettingsScope.State.UNAVAILABLE, permission.state());
     assertEquals(BluetoothDetailsScope.State.UNAVAILABLE, bluetooth.state());
     assertEquals(AboutPhoneScope.State.UNAVAILABLE, about.state());
     assertEquals(0, replacement.requests);

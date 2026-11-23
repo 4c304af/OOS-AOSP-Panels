@@ -15,7 +15,8 @@ public final class PanelApplication extends Application {
   OptionalSettingsScope launcherScope() {
     if (launcherScope == null) {
       launcherScope = new OptionalSettingsScope(this, CombinedQsSettings.LAUNCHER_ICONS,
-          java.util.List.of(LauncherIconRefresh.PACKAGE), null);
+          java.util.List.of(LauncherIconRefresh.PACKAGE),
+          OptionalSettingsScope.background("LauncherRestart", RootRestart::restartLauncher), false);
       launcherScope.connect();
     }
     return launcherScope;

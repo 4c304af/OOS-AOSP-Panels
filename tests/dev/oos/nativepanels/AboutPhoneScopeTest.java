@@ -138,7 +138,7 @@ public class AboutPhoneScopeTest {
     assertEquals(READY, scope.state());
   }
 
-  @Test public void savedEnabledScreenHidesSetupUntilAnExplicitApplyFails() {
+  @Test public void savedEnabledScreenOffersRestartAfterScopeIsGranted() {
     setEnabled(true);
     service.packages = List.of(SETTINGS);
     useApplicationScope();
@@ -149,9 +149,9 @@ public class AboutPhoneScopeTest {
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
       assertEquals(activity.getString(R.string.about_scope_added), status(activity).getText().toString());
-      assertEquals(View.GONE, retry(activity).getVisibility());
-      toggle(activity).performClick();
-      toggle(activity).performClick();
+      assertEquals(View.VISIBLE, retry(activity).getVisibility());
+      assertEquals(activity.getString(R.string.restart_about), ((TextView) retry(activity)).getText().toString());
+      retry(activity).performClick();
       assertEquals(1, restarter.jobs.size());
       restarter.finish(0, RootRestart.Result.DENIED);
       ShadowLooper.idleMainLooper();
@@ -215,12 +215,12 @@ public class AboutPhoneScopeTest {
       assertEquals(ADDED, scope.state());
       assertTrue(toggle(activity).isChecked());
       assertEquals(activity.getString(R.string.about_scope_added), status(activity).getText().toString());
-      assertEquals(View.GONE, retry(activity).getVisibility());
+      assertEquals(View.VISIBLE, retry(activity).getVisibility());
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
       controller.recreate();
       ShadowLooper.idleMainLooper();
-      assertEquals(View.GONE, retry(controller.get()).getVisibility());
+      assertEquals(View.VISIBLE, retry(controller.get()).getVisibility());
       assertTrue(service.requests.isEmpty());
       assertTrue(restarter.jobs.isEmpty());
     }

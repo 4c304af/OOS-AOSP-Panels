@@ -105,7 +105,7 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish signed APK as a prerelease for device testing
+      - name: Publish signed APK to GitHub Releases
         if: steps.check.outputs.publish == 'true'
         run: |
           set -euo pipefail
@@ -117,9 +117,12 @@ jobs:
             --jq '.commit.message | split("\n\nRelease notes:\n") | if length > 1 then .[1:] | join("\n\nRelease notes:\n") else "" end' > "$notes_file"
           printf '\nBuilt from %s. [GitHub Actions run](%s/%s/actions/runs/%s).\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes_file"
+          # 0.6.78 was approved for direct release. Every other version starts in prerelease.
+          flags=(--prerelease)
+          if [[ "$VERSION" == 0.6.78 ]]; then flags=(--latest); fi
           gh release create "v$VERSION" "dist/OOS-AOSP-Panels-$VERSION.apk" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "OOS AOSP Panels $VERSION" --prerelease \
+            --title "OOS AOSP Panels $VERSION" "${flags[@]}" \
             --notes-file "$notes_file"
 
       - name: Mark 0.6.76 as a prerelease once its replacement is available

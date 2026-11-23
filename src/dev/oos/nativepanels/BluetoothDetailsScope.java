@@ -9,16 +9,7 @@ final class BluetoothDetailsScope extends OptionalSettingsScope {
       BluetoothDetailsSettings.SETTINGS_PACKAGE, BluetoothDetailsSettings.WIRELESS_PACKAGE);
 
   BluetoothDetailsScope(Context context) {
-    this(context, (allowed, completion) -> {
-      Thread worker = new Thread(() -> {
-        RootRestart.Result result;
-        try { result = RootRestart.restartBluetoothSettings(allowed); }
-        catch (java.io.IOException | RuntimeException failure) { result = RootRestart.Result.FAILED; }
-        completion.completed(result);
-      }, "BluetoothSettingsRestart");
-      worker.setDaemon(true);
-      worker.start();
-    });
+    this(context, background("BluetoothSettingsRestart", RootRestart::restartBluetoothSettings));
   }
 
   BluetoothDetailsScope(Context context, Restarter restarter) {

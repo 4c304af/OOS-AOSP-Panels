@@ -8,16 +8,7 @@ final class AboutPhoneScope extends OptionalSettingsScope {
   static final List<String> PACKAGES = List.of(AboutPhoneSettings.SETTINGS_PACKAGE);
 
   AboutPhoneScope(Context context) {
-    this(context, (allowed, completion) -> {
-      Thread worker = new Thread(() -> {
-        RootRestart.Result result;
-        try { result = RootRestart.restartSettings(allowed); }
-        catch (java.io.IOException | RuntimeException failure) { result = RootRestart.Result.FAILED; }
-        completion.completed(result);
-      }, "AboutPhoneSettingsRestart");
-      worker.setDaemon(true);
-      worker.start();
-    });
+    this(context, background("AboutPhoneSettingsRestart", RootRestart::restartSettings));
   }
 
   AboutPhoneScope(Context context, Restarter restarter) {

@@ -1,9 +1,8 @@
 package dev.oos.nativepanels;
 
 final class Protocol {
-  // An updated settings APK must not call a still-loaded older module: its R IDs
-  // can refer to different entries in the newly installed resource table.
-  static final String ACTION = "dev.oos.nativepanels.COMMAND." + BuildConfig.VERSION_CODE;
+  // Hosts retain their receiver and compiled resource IDs until their process restarts.
+  static final String ACTION = "dev.oos.nativepanels.COMMAND." + BuildConfig.SYSTEM_UI_REVISION;
   static final String PERMISSION = "dev.oos.nativepanels.permission.CONTROL";
   static final String TARGET = "com.android.systemui";
   static final String[] KEYS = {"internet", "modes", "bluetooth", "media", "channels", "flashlight", "ime", "privacy", "users", "notification_cards"};

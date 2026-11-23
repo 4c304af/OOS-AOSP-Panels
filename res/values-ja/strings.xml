@@ -29,9 +29,9 @@
     <string name="permission_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にしてから、アプリを開き直してください。それでも接続できない場合は、モジュールの対象に「権限コントローラ」を手動で選び、端末を再起動してください。</string>
     <string name="permission_scope_root_pending">設定を反映しています。root 管理アプリの案内が表示されたら、このモジュールの root 権限を許可してください。</string>
     <string name="permission_scope_ready">設定が完了しました。アプリが次にカメラや位置情報などの権限を求めるときから、Android 標準の画面になります。</string>
-    <string name="permission_scope_root_denied">root 権限が許可されていません。root 管理アプリでこのモジュールを許可し、「設定を続ける」をタップしてください。端末を再起動して反映することもできます。</string>
-    <string name="permission_scope_root_timeout">root 権限の許可、または設定の反映がタイムアウトしました。root 管理アプリでこのモジュールが許可されていることを確認し、「設定を続ける」をタップしてください。端末を再起動して反映することもできます。</string>
-    <string name="permission_scope_root_failed">設定を自動で反映できませんでした。このモジュールに root 権限を許可してから、「設定を続ける」をタップしてください。端末を再起動して反映することもできます。</string>
+    <string name="permission_scope_root_denied">root 権限が許可されていません。root 管理アプリでこのモジュールを許可し、「権限コントローラを再起動」をタップしてください。端末を再起動して反映することもできます。</string>
+    <string name="permission_scope_root_timeout">root 権限の許可、または設定の反映がタイムアウトしました。root 管理アプリでこのモジュールが許可されていることを確認し、「権限コントローラを再起動」をタップしてください。端末を再起動して反映することもできます。</string>
+    <string name="permission_scope_root_failed">設定を自動で反映できませんでした。このモジュールに root 権限を許可してから、「権限コントローラを再起動」をタップしてください。端末を再起動して反映することもできます。</string>
     <string name="permission_scope_retry">設定を続ける</string>
     <string name="try_hint">パネルの動作を確認してから、置き換えを有効にしてください。</string>
     <string name="root_pending">root 権限をリクエスト中…</string>
@@ -171,9 +171,9 @@
     <string name="bluetooth_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にして、アプリを開き直してください。対象に「設定」と「ワイヤレス設定」を手動で選び、端末を再起動して反映することもできます。</string>
     <string name="bluetooth_scope_root_pending">設定アプリに反映しています。root の案内が表示されたら許可してください。Bluetooth 接続は維持されます。</string>
     <string name="bluetooth_scope_ready">設定が完了しました。設定またはクイック設定から Bluetooth デバイスの詳細を開き直してください。</string>
-    <string name="bluetooth_scope_root_denied">root 権限が許可されていません。root 管理アプリでこのモジュールを許可し、「設定を続ける」をタップしてください。端末を再起動して反映することもできます。</string>
-    <string name="bluetooth_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
-    <string name="bluetooth_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="bluetooth_scope_root_denied">root 権限が許可されていません。root 管理アプリでこのモジュールを許可し、「設定とワイヤレス設定を再起動」をタップしてください。端末を再起動して反映することもできます。</string>
+    <string name="bluetooth_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定とワイヤレス設定を再起動」をタップするか、端末を再起動してください。</string>
+    <string name="bluetooth_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定とワイヤレス設定を再起動」をタップするか、端末を再起動してください。</string>
     <string name="bluetooth_scope_retry">設定を続ける</string>
     <string name="about_phone">デバイス情報の M3E スタイル</string>
     <string name="about_phone_desc">デバイス情報の画面を Material 3 Expressive スタイルにします。情報と操作はそのまま使えます。オンにして案内に従って許可したら、デバイス情報を開き直してください。</string>
@@ -185,9 +185,9 @@
     <string name="about_scope_unavailable">LSPosed に接続できていません。このモジュールを有効にして、アプリを開き直してください。対象に「設定」を手動で選び、端末を再起動して反映することもできます。</string>
     <string name="about_scope_root_pending">設定アプリに反映しています。root の案内が表示されたら許可してください。</string>
     <string name="about_scope_ready">設定が完了しました。設定のデバイス情報を開き直してください。</string>
-    <string name="about_scope_root_denied">root 権限が許可されていません。このモジュールを許可して「設定を続ける」をタップするか、端末を再起動してください。</string>
-    <string name="about_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
-    <string name="about_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
+    <string name="about_scope_root_denied">root 権限が許可されていません。このモジュールを許可して「設定を再起動」をタップするか、端末を再起動してください。</string>
+    <string name="about_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を再起動」をタップするか、端末を再起動してください。</string>
+    <string name="about_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を再起動」をタップするか、端末を再起動してください。</string>
     <string name="about_scope_retry">設定を続ける</string>
     <string name="launcher_icons">アイコンパックの配色を更新</string>
     <string name="launcher_icons_desc">システムの配色やライト・ダークモードが変わると、使用中のアイコンパックと、システムランチャーで個別に選んだアイコンの色を更新します。</string>
@@ -195,4 +195,10 @@
     <string name="launcher_scope_ready">「システムランチャー」は追加済みです。初めて追加した場合は、ランチャーを一度再起動してください。</string>
     <string name="launcher_scope_setup">「設定を続ける」をタップするか、LSPosed のモジュールのスコープで「システムランチャー」を選択してください。</string>
     <string name="launcher_icons_enable">有効にする</string>
+    <string name="restart_permission">権限コントローラを再起動</string>
+    <string name="restart_bluetooth">設定とワイヤレス設定を再起動</string>
+    <string name="restart_about">設定を再起動</string>
+    <string name="restart_launcher">ホームを再起動</string>
+    <string name="launcher_restarted">設定を反映しました。ホームに戻るとモジュールが読み込まれます。</string>
+    <string name="launcher_restart_failed">ホームを再起動できませんでした。root 権限を確認して、もう一度お試しください。</string>
 </resources>

@@ -215,8 +215,9 @@ public class LauncherIconRefreshTest {
   }
 
   @Test public void scopeIsRequestedOnlyOnEnableAndOnlyForSystemLauncher() {
+    java.util.ArrayList<OptionalSettingsScope.RestartResult> jobs = new java.util.ArrayList<>();
     OptionalSettingsScope scope = new OptionalSettingsScope(context, CombinedQsSettings.LAUNCHER_ICONS,
-        List.of(LauncherIconRefresh.PACKAGE), null);
+        List.of(LauncherIconRefresh.PACKAGE), (allowed, result) -> jobs.add(result), false);
     scope.bind(new OptionalSettingsScope.Backend() {
       List<String> packages = List.of();
       public List<String> scope() { return packages; }
@@ -232,7 +233,23 @@ public class LauncherIconRefreshTest {
     assertEquals(OptionalSettingsScope.State.MISSING, scope.state());
     scope.request();
     settle();
-    assertEquals(OptionalSettingsScope.State.READY, scope.state());
+    assertEquals(OptionalSettingsScope.State.ADDED, scope.state());
+    assertTrue(jobs.isEmpty());
+    org.robolectric.util.ReflectionHelpers.setField(RuntimeEnvironment.getApplication(), "launcherScope", scope);
+    try (var screen = Robolectric.buildActivity(MainActivity.class).setup().visible()) {
+      settle();
+      android.widget.Button button = screen.get().getWindow().getDecorView().findViewWithTag("launcher_scope_retry");
+      assertEquals(screen.get().getString(R.string.restart_launcher), button.getText());
+      assertTrue(button.isShown());
+      button.performClick();
+      assertFalse(button.isEnabled());
+      scope.restart();
+      assertEquals(1, jobs.size());
+      jobs.get(0).completed(RootRestart.Result.REQUESTED);
+      settle();
+      assertTrue(button.isEnabled());
+      assertEquals(OptionalSettingsScope.State.READY, scope.state());
+    }
   }
 
   @Test public void systemLauncherCanReadItsSwitchWithoutASystemUiPermission() {
