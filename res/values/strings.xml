@@ -189,4 +189,10 @@
     <string name="about_scope_root_timeout">Applying the change took too long. Check root access and tap Continue setup, or restart your phone.</string>
     <string name="about_scope_root_failed">The change could not be applied automatically. Check root access and tap Continue setup, or restart your phone.</string>
     <string name="about_scope_retry">Continue setup</string>
+    <string name="launcher_icons">Refresh icon pack colors</string>
+    <string name="launcher_icons_desc">Refresh System Launcher icons when the system palette or light/dark appearance changes. Applies to the selected icon pack.</string>
+    <string name="launcher_scope_requesting">Approve System Launcher in the LSPosed scope request.</string>
+    <string name="launcher_scope_ready">System Launcher is in scope. Restart the launcher once if you just added it.</string>
+    <string name="launcher_scope_setup">Tap Continue setup to add System Launcher, or select it in the module scope in LSPosed.</string>
+    <string name="launcher_icons_enable">Enable</string>
 </resources>

@@ -16,9 +16,12 @@ import androidx.lifecycle.ViewModelProvider;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public final class UpdateCheckDialog extends DialogFragment {
+  static final String TAG = "updates";
+
   public static final class Check extends ViewModel {
     final MutableLiveData<GitHubUpdates.Result> result = new MutableLiveData<>();
     private Thread worker;
+    boolean promptHandled;
 
     void start() {
       GitHubUpdates.Result previous = result.getValue();
@@ -37,7 +40,8 @@ public final class UpdateCheckDialog extends DialogFragment {
   private Check check;
 
   @Override public Dialog onCreateDialog(Bundle state) {
-    check = new ViewModelProvider(this).get(Check.class);
+    check = new ViewModelProvider(requireActivity()).get(Check.class);
+    check.promptHandled = true;
     AlertDialog dialog = new MaterialAlertDialogBuilder(requireContext())
         .setTitle(R.string.check_updates)
         .setMessage(R.string.update_checking)

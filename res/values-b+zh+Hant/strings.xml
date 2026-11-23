@@ -189,4 +189,10 @@
     <string name="about_scope_root_timeout">套用設定逾時。請確認 root 授權後點「繼續設定」，或重啟手機套用。</string>
     <string name="about_scope_root_failed">未能自動套用。請確認 root 授權後點「繼續設定」，或重啟手機套用。</string>
     <string name="about_scope_retry">繼續設定</string>
+    <string name="launcher_icons">更新圖標包配色</string>
+    <string name="launcher_icons_desc">系統主題色或深淺模式變更時，讓系統桌面重新載入目前套用的圖標包。</string>
+    <string name="launcher_scope_requesting">請在 LSPosed 的作用域請求中允許「系統桌面」。</string>
+    <string name="launcher_scope_ready">「系統桌面」已加入作用域。首次加入後，請重新啟動桌面一次。</string>
+    <string name="launcher_scope_setup">點選「繼續設定」，或在 LSPosed 的模組作用域中勾選「系統桌面」。</string>
+    <string name="launcher_icons_enable">啟用</string>
 </resources>

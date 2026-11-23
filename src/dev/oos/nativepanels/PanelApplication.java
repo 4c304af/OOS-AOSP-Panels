@@ -8,8 +8,18 @@ public final class PanelApplication extends Application {
   private PermissionDialogScope permissionScope;
   private BluetoothDetailsScope bluetoothDetailsScope;
   private AboutPhoneScope aboutPhoneScope;
+  private OptionalSettingsScope launcherScope;
 
   ScopeServiceConnection scopeService() { return scopeService; }
+
+  OptionalSettingsScope launcherScope() {
+    if (launcherScope == null) {
+      launcherScope = new OptionalSettingsScope(this, CombinedQsSettings.LAUNCHER_ICONS,
+          java.util.List.of(LauncherIconRefresh.PACKAGE), null);
+      launcherScope.connect();
+    }
+    return launcherScope;
+  }
 
   AboutPhoneScope aboutPhoneScope() {
     if (aboutPhoneScope == null) {

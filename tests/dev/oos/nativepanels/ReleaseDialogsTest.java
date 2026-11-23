@@ -2,13 +2,10 @@ package dev.oos.nativepanels;
 
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
-import android.os.Bundle;
 import android.view.View;
 import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.DialogFragment;
-import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentManager;
 import androidx.lifecycle.ViewModelProvider;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,16 +35,10 @@ public class ReleaseDialogsTest {
     try (var ui = Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity initial = ui.get();
       var release = new GitHubUpdates.Release(GitHubUpdates.Version.parse("1.0.0"), "v1.0.0");
-      initial.getSupportFragmentManager().registerFragmentLifecycleCallbacks(
-          new FragmentManager.FragmentLifecycleCallbacks() {
-            @Override public void onFragmentCreated(FragmentManager fm, Fragment f, Bundle state) {
-              if (f instanceof UpdateCheckDialog) {
-                new ViewModelProvider(f).get(UpdateCheckDialog.Check.class).result.setValue(
-                    new GitHubUpdates.Result(GitHubUpdates.Status.AVAILABLE, release));
-              }
-            }
-          }, false);
+      var check = new ViewModelProvider(initial).get(UpdateCheckDialog.Check.class);
+      check.result.setValue(new GitHubUpdates.Result(GitHubUpdates.Status.CHECKING, null));
       button(initial, R.string.check_updates).performClick();
+      check.result.setValue(new GitHubUpdates.Result(GitHubUpdates.Status.AVAILABLE, release));
       assertTrue(message(dialog(initial, "updates")).contains("1.0.0"));
       ui.recreate();
       ShadowLooper.idleMainLooper();
@@ -55,6 +46,30 @@ public class ReleaseDialogsTest {
       assertTrue(message(updates).contains("1.0.0"));
       updates.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
       assertEquals(release.page(), shadowOf(ui.get()).getNextStartedActivity().getDataString());
+    }
+  }
+
+  @Test public void onlyAnAvailableStartupResultPromptsAndItIsConsumedAcrossRecreation() {
+    try (var ui = Robolectric.buildActivity(MainActivity.class).setup().visible()) {
+      MainActivity activity = ui.get();
+      var check = new ViewModelProvider(activity).get(UpdateCheckDialog.Check.class);
+      check.result.setValue(new GitHubUpdates.Result(GitHubUpdates.Status.CHECKING, null));
+      ui.windowFocusChanged(true);
+      for (var status : new GitHubUpdates.Status[] {GitHubUpdates.Status.CURRENT, GitHubUpdates.Status.EMPTY,
+          GitHubUpdates.Status.RATE_LIMIT, GitHubUpdates.Status.FAILED}) {
+        check.result.setValue(new GitHubUpdates.Result(status, null));
+        ShadowLooper.idleMainLooper();
+        assertNull(activity.getSupportFragmentManager().findFragmentByTag(UpdateCheckDialog.TAG));
+      }
+      var release = new GitHubUpdates.Release(GitHubUpdates.Version.parse("1.0.0"), "v1.0.0");
+      check.result.setValue(new GitHubUpdates.Result(GitHubUpdates.Status.AVAILABLE, release));
+      ShadowLooper.idleMainLooper();
+      dialog(activity, UpdateCheckDialog.TAG).getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+      ShadowLooper.idleMainLooper();
+      ui.recreate().visible().windowFocusChanged(true);
+      ShadowLooper.idleMainLooper();
+      assertTrue(check.promptHandled);
+      assertNull(ui.get().getSupportFragmentManager().findFragmentByTag(UpdateCheckDialog.TAG));
     }
   }
 

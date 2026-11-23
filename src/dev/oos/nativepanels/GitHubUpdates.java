@@ -47,8 +47,10 @@ final class GitHubUpdates {
     if (installed == null) return new Result(Status.FAILED, null);
     Release newest = null;
     try {
-      for (int page = 1; ; page++) {
-        URL url = new URL("https://api.github.com/repos/" + REPO + "/releases?per_page=100&page=" + page);
+      // A stable launch normally needs just one release's metadata.
+      for (int page = installed.test ? 1 : 0; ; page++) {
+        String path = page == 0 ? "/releases/latest" : "/releases?per_page=100&page=" + page;
+        URL url = new URL("https://api.github.com/repos/" + REPO + path);
         HttpURLConnection http = (HttpURLConnection) url.openConnection();
         try {
           http.setConnectTimeout(8000);
@@ -56,6 +58,7 @@ final class GitHubUpdates {
           http.setRequestProperty("Accept", "application/vnd.github+json");
           http.setRequestProperty("User-Agent", "OOS-AOSP-Panels/" + installedName);
           int code = http.getResponseCode();
+          if (page == 0 && code == 404) continue;
           if (code == 429 || (code == 403 && ("0".equals(http.getHeaderField("X-RateLimit-Remaining"))
               || http.getHeaderField("Retry-After") != null))) return new Result(Status.RATE_LIMIT, null);
           if (code != 200) return new Result(Status.FAILED, null);
@@ -65,6 +68,11 @@ final class GitHubUpdates {
             char[] buffer = new char[8192];
             int count;
             while ((count = input.read(buffer)) != -1) json.append(buffer, 0, count);
+          }
+          if (page == 0) {
+            newest = newestOnPage(new JSONArray().put(new JSONObject(json.toString())), installed, null);
+            if (newest != null) return result(installed, newest);
+            continue; // The latest release may be missing its APK.
           }
           newest = newestOnPage(new JSONArray(json.toString()), installed, newest);
           String links = http.getHeaderField("Link");

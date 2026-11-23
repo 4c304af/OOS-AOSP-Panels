@@ -159,7 +159,7 @@ class OptionalSettingsScope {
       List<String> missing = new ArrayList<>(packages);
       missing.removeAll(requested.scope());
       if (missing.isEmpty()) {
-        restartSettings();
+        applyScope();
         return;
       }
       activeRequest = token;
@@ -190,15 +190,19 @@ class OptionalSettingsScope {
     try {
       // A previously granted host can be removed while the missing-host prompt is open.
       // All required hosts must still be scoped when this explicit setup operation applies.
-      if (requested.scope().containsAll(packages)) restartSettings();
+      if (requested.scope().containsAll(packages)) applyScope();
       else update(State.MISSING);
     } catch (RuntimeException unavailable) {
       update(State.UNAVAILABLE);
     }
   }
 
-  private void restartSettings() {
+  private void applyScope() {
     if (!enabled() || activeRestart != null) return;
+    if (restarter == null) {
+      update(State.READY);
+      return;
+    }
     AtomicBoolean ticket = new AtomicBoolean(true);
     activeRestart = ticket;
     update(State.ROOT_PENDING);

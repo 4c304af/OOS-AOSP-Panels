@@ -12,9 +12,10 @@ final class CombinedQsSettings {
   static final String PERMISSION_DIALOG = "native_permission_dialog";
   static final String BLUETOOTH_DETAILS = "native_bluetooth_details";
   static final String ABOUT_PHONE = "about_phone_m3e";
+  static final String LAUNCHER_ICONS = "launcher_monet_icons";
   static boolean standalone(String key) {
     return HOME_BATTERY.equals(key) || PERMISSION_DIALOG.equals(key)
-        || BLUETOOTH_DETAILS.equals(key) || ABOUT_PHONE.equals(key);
+        || BLUETOOTH_DETAILS.equals(key) || ABOUT_PHONE.equals(key) || LAUNCHER_ICONS.equals(key);
   }
 
   static final Uri URI = Uri.parse("content://" + AUTHORITY);
@@ -34,7 +35,11 @@ final class CombinedQsSettings {
 
   static boolean setEnabled(Context context, String key, boolean enabled) {
     // Persist before a host process starts or creates its next dialog.
-    return settings(context).edit().putBoolean(key, enabled).commit();
+    boolean saved = settings(context).edit().putBoolean(key, enabled).commit();
+    if (saved && LAUNCHER_ICONS.equals(key)) {
+      context.getContentResolver().notifyChange(URI.buildUpon().appendPath(key).build(), null);
+    }
+    return saved;
   }
 
   private CombinedQsSettings() {}

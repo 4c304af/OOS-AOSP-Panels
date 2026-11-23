@@ -189,4 +189,10 @@
     <string name="about_scope_root_timeout">应用设置超时。请确认 root 授权后点“继续设置”，或重启手机应用。</string>
     <string name="about_scope_root_failed">未能自动应用。请确认 root 授权后点“继续设置”，或重启手机应用。</string>
     <string name="about_scope_retry">继续设置</string>
+    <string name="launcher_icons">更新图标包配色</string>
+    <string name="launcher_icons_desc">系统主题色或深浅模式变化时，让系统桌面重新加载当前使用的图标包。</string>
+    <string name="launcher_scope_requesting">请在 LSPosed 的作用域请求中允许“系统桌面”。</string>
+    <string name="launcher_scope_ready">“系统桌面”已添加到作用域。首次添加后，请重启桌面一次。</string>
+    <string name="launcher_scope_setup">点按“继续设置”，或在 LSPosed 的模块作用域中勾选“系统桌面”。</string>
+    <string name="launcher_icons_enable">启用</string>
 </resources>

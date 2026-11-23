@@ -189,4 +189,10 @@
     <string name="about_scope_root_timeout">設定の反映がタイムアウトしました。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
     <string name="about_scope_root_failed">自動で反映できませんでした。root 権限を確認して「設定を続ける」をタップするか、端末を再起動してください。</string>
     <string name="about_scope_retry">設定を続ける</string>
+    <string name="launcher_icons">アイコンパックの配色を更新</string>
+    <string name="launcher_icons_desc">システムの配色やライト・ダークモードが変わったとき、システムランチャーで使用中のアイコンパックを再読み込みします。</string>
+    <string name="launcher_scope_requesting">LSPosed のスコープ追加画面で「システムランチャー」を許可してください。</string>
+    <string name="launcher_scope_ready">「システムランチャー」は追加済みです。初めて追加した場合は、ランチャーを一度再起動してください。</string>
+    <string name="launcher_scope_setup">「設定を続ける」をタップするか、LSPosed のモジュールのスコープで「システムランチャー」を選択してください。</string>
+    <string name="launcher_icons_enable">有効にする</string>
 </resources>

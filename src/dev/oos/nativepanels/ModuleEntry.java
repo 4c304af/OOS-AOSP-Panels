@@ -19,6 +19,12 @@ public final class ModuleEntry extends XposedModule {
   // PackageReady supplies the final AppComponentFactory class loader before Application creation.
   @Override
   public void onPackageReady(XposedModuleInterface.PackageReadyParam p) {
+    if (LauncherIconRefresh.PACKAGE.equals(p.getPackageName())) {
+      if (LauncherIconRefresh.PACKAGE.equals(Application.getProcessName())) {
+        installPart("launcher-icons", () -> LauncherIconRefresh.install(this, p.getClassLoader()));
+      }
+      return;
+    }
     if (PermissionDialogHook.PACKAGE.equals(p.getPackageName())) {
       installPart("permission-dialogs", () -> new PermissionDialogHook(this, p.getClassLoader()).install());
       return;
