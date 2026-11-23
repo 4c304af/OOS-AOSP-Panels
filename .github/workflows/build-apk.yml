@@ -117,18 +117,18 @@ jobs:
             --jq '.commit.message | split("\n\nRelease notes:\n") | if length > 1 then .[1:] | join("\n\nRelease notes:\n") else "" end' > "$notes_file"
           printf '\nBuilt from %s. [GitHub Actions run](%s/%s/actions/runs/%s).\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes_file"
-          # 0.6.78 was approved for direct release. Every other version starts in prerelease.
+          # 0.6.79 was approved for direct release. Every other version starts in prerelease.
           flags=(--prerelease)
-          if [[ "$VERSION" == 0.6.78 ]]; then flags=(--latest); fi
+          if [[ "$VERSION" == 0.6.79 ]]; then flags=(--latest); fi
           gh release create "v$VERSION" "dist/OOS-AOSP-Panels-$VERSION.apk" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "OOS AOSP Panels $VERSION" "${flags[@]}" \
             --notes-file "$notes_file"
 
-      - name: Mark 0.6.76 as a prerelease once its replacement is available
-        if: needs.build.outputs.version == '0.6.77'
+      - name: Mark 0.6.78 as a prerelease once its replacement is available
+        if: needs.build.outputs.version == '0.6.79'
         run: |
           set -euo pipefail
-          gh release view v0.6.77 --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
-            --jq '(.isDraft == false) and any(.assets[]; .name == "OOS-AOSP-Panels-0.6.77.apk" and .size > 0)' | grep -Fxq true
-          gh release edit v0.6.76 --repo "$GITHUB_REPOSITORY" --prerelease
+          gh release view v0.6.79 --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets \
+            --jq '(.isDraft == false and .isPrerelease == false) and any(.assets[]; .name == "OOS-AOSP-Panels-0.6.79.apk" and .size > 0)' | grep -Fxq true
+          gh release edit v0.6.78 --repo "$GITHUB_REPOSITORY" --prerelease

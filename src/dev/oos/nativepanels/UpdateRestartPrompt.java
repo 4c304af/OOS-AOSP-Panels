@@ -11,7 +11,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-/** A once-per-SystemUI-revision reminder; restarting still requires an explicit button press. */
+/** Shows one reminder after an upgrade if the matching SystemUI receiver is unavailable. */
 public final class UpdateRestartPrompt extends DialogFragment {
   static final String TAG = "module-update-restart";
   static final String REQUEST_RESTART = "module-update-confirm-restart";
@@ -27,8 +27,6 @@ public final class UpdateRestartPrompt extends DialogFragment {
     long current = BuildConfig.VERSION_CODE;
     String revision = BuildConfig.SYSTEM_UI_REVISION;
     String previous = saved.getString(SEEN_REVISION, null);
-    // Before 0.6.78 each receiver was named with that APK's numeric version code.
-    if (previous == null && seen >= 0) previous = seen == 88 ? "89" : Long.toString(seen);
     UpdateRestartPrompt restored = (UpdateRestartPrompt) fragments.findFragmentByTag(TAG);
     if (restored != null && compatibleHostRunning) restored.dismiss();
     if (seen == current && revision.equals(previous)) return;
@@ -43,7 +41,7 @@ public final class UpdateRestartPrompt extends DialogFragment {
         // baseline. A later version change can still be recognized reliably.
       }
     }
-    if (restored == null && !compatibleHostRunning && needsPrompt(previous, revision, installed, updated)) {
+    if (restored == null && !compatibleHostRunning && (seen >= 0 || needsPrompt(previous, revision, installed, updated))) {
       // showNow lets us record this version only after the dialog was displayed.
       // FragmentManager restores the same unanswered prompt after recreation.
       new UpdateRestartPrompt().showNow(fragments, TAG);

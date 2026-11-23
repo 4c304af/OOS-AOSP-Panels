@@ -34,16 +34,15 @@ public final class MainActivity extends AppCompatActivity {
   private final Map<String, Boolean> values = new LinkedHashMap<>();
   private MaterialTextView stateTitle, stateDetail, reportView;
   private ScrollView scroll;
-  private boolean updating, connected, ready, imeReadable;
+  private boolean updating, connected, ready;
   private String report;
   private OnBackPressedCallback back;
   private MaterialButton restartButton;
   private UpdateCheckDialog.Check updates;
   private boolean restarting;
-  private boolean receivedSystemUiStatus, compatibleSystemUi;
-  private String systemUiAction = Protocol.ACTION;
-  // 0.6.76 and 0.6.77 used identical SystemUI strings and handlers, on different channels.
-  private static final String LEGACY_076_ACTION = "dev.oos.nativepanels.COMMAND.88";
+  private boolean receivedSystemUiStatus;
+  private Bundle availableFeatures = Bundle.EMPTY;
+  private final Set<String> pendingSettings = new HashSet<>();
   private PermissionDialogScope permissionScope;
   private final PermissionDialogScope.Observer permissionScopeObserver = this::updatePermissionScope;
   private MaterialTextView permissionScopeStatus;
@@ -118,7 +117,7 @@ public final class MainActivity extends AppCompatActivity {
 
   @Override protected void onPostResume() {
     super.onPostResume();
-    if (receivedSystemUiStatus) UpdateRestartPrompt.showIfNeeded(this, compatibleSystemUi);
+    if (receivedSystemUiStatus) UpdateRestartPrompt.showIfNeeded(this, connected);
     handler.post(this::checkForStartupUpdate);
   }
 
@@ -783,13 +782,20 @@ public final class MainActivity extends AppCompatActivity {
   }
 
   private void request(String command, String feature, boolean enabled) {
-    String action = "status".equals(command) ? Protocol.ACTION : systemUiAction;
-    request(command, feature, enabled, action);
-  }
-
-  private void request(String command, String feature, boolean enabled, String action) {
+    if (!"status".equals(command) && !connected) {
+      updateState();
+      showSetup();
+      return;
+    }
+    if ("set".equals(command)) {
+      if ((enabled && !availableFeatures.getBoolean(feature)) || !pendingSettings.add(feature)) {
+        updateState();
+        return;
+      }
+      updateState();
+    }
     Intent intent =
-        new Intent(action)
+        new Intent(Protocol.ACTION)
             .setPackage(Protocol.TARGET)
             .putExtra("locales", PanelLanguages.forApp(this).toLanguageTags())
             .putExtra("command", command)
@@ -803,32 +809,28 @@ public final class MainActivity extends AppCompatActivity {
           @Override
           public void onReceive(Context context, Intent ignored) {
             if (isFinishing() || isDestroyed()) return;
-            if (getResultCode() == 0 && "status".equals(command) && Protocol.ACTION.equals(action)
-                && "89".equals(BuildConfig.SYSTEM_UI_REVISION)) {
-              request(command, feature, enabled, LEGACY_076_ACTION);
-              return;
+            if ("set".equals(command)) pendingSettings.remove(feature);
+            Bundle state = getResultExtras(false);
+            connected = getResultCode() != 0 && acceptSystemUiState(state);
+            if (!connected) {
+              ready = false;
+              availableFeatures = Bundle.EMPTY;
             }
-            connected = getResultCode() != 0;
             if ("status".equals(command)) {
-              systemUiAction = connected ? action : Protocol.ACTION;
               receivedSystemUiStatus = true;
-              compatibleSystemUi = getResultCode() > 0;
               if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) {
-                UpdateRestartPrompt.showIfNeeded(MainActivity.this, compatibleSystemUi);
+                UpdateRestartPrompt.showIfNeeded(MainActivity.this, connected);
               }
             }
-            Bundle b = getResultExtras(false);
-            ready = connected && b != null && b.getBoolean("ready", false);
-            imeReadable = connected && b != null && b.getBoolean("imeReadable", false);
             if (connected && getResultData() != null) {
               report = getResultData();
               DiagnosticSnapshot.remember(context, report);
             } else report = offlineReport();
-            for (String key : Protocol.KEYS)
-              values.put(key, connected && b != null && b.getBoolean(key, false));
             updateState();
             if (!connected && !"status".equals(command)) showSetup();
-            else if (getResultCode() < 0)
+            else if (getResultCode() == Protocol.UNAVAILABLE)
+              Snackbar.make(scroll, R.string.feature_unavailable, Snackbar.LENGTH_LONG).show();
+            else if (getResultCode() < 0 && !"status".equals(command))
               Snackbar.make(scroll, "ime".equals(feature) ? getString(R.string.ime_update_failed) : getString(R.string.open_failed), Snackbar.LENGTH_LONG)
                   .setAction(getString(R.string.view_log), v -> showDiagnostics())
                   .show();
@@ -840,6 +842,14 @@ public final class MainActivity extends AppCompatActivity {
         null);
   }
 
+  private boolean acceptSystemUiState(Bundle state) {
+    if (!Protocol.hasLiveState(state)) return false;
+    ready = state.getBoolean("ready");
+    availableFeatures = state.getBundle(Protocol.AVAILABLE);
+    for (String key : Protocol.KEYS) values.put(key, state.getBoolean(key));
+    return true;
+  }
+
   private void updateState() {
     if (stateTitle != null) {
       stateTitle.setText(ready ? getString(R.string.connected) : connected ? getString(R.string.preparing) : getString(R.string.offline));
@@ -847,12 +857,19 @@ public final class MainActivity extends AppCompatActivity {
     }
     updateOosCards(CombinedQsSettings.enabled(this), false);
     updating = true;
-    for (Map.Entry<String, MaterialSwitch> e : switches.entrySet())
-      e.getValue().setChecked("combined_qs".equals(e.getKey()) ? CombinedQsSettings.enabled(this)
-          : CombinedQsSettings.standalone(e.getKey()) ? CombinedQsSettings.enabled(this, e.getKey())
-          : Boolean.TRUE.equals(values.get(e.getKey())));
-    MaterialSwitch ime = switches.get("ime");
-    if (ime != null) ime.setEnabled(imeReadable);
+    for (Map.Entry<String, MaterialSwitch> entry : switches.entrySet()) {
+      String key = entry.getKey();
+      MaterialSwitch toggle = entry.getValue();
+      if ("combined_qs".equals(key) || CombinedQsSettings.standalone(key)) {
+        toggle.setChecked(CombinedQsSettings.enabled(this, "combined_qs".equals(key) ? CombinedQsSettings.QUERY : key));
+      } else {
+        boolean stored = Boolean.TRUE.equals(values.get(key));
+        toggle.setChecked(stored);
+        // An unavailable hook can still be turned off if the host confirms it was enabled.
+        toggle.setEnabled(connected && !pendingSettings.contains(key)
+            && (availableFeatures.getBoolean(key) || (stored && !"ime".equals(key))));
+      }
+    }
     updating = false;
     if (reportView != null) reportView.setText(diagnosticReport());
   }

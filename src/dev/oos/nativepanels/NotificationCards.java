@@ -566,6 +566,8 @@ final class NotificationCards {
     return surface(style, n.category, (n.flags & Notification.FLAG_GROUP_SUMMARY) != 0, colorized);
   }
 
+  boolean isReady() { return ready; }
+
   void setEnabled(boolean value) { enabled = value; }
 
   private int id(Resources res, String name) { return res.getIdentifier(name, "id", "android"); }

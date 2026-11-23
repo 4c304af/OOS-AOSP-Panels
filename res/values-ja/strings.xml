@@ -201,4 +201,5 @@
     <string name="restart_launcher">ホームを再起動</string>
     <string name="launcher_restarted">設定を反映しました。ホームに戻るとモジュールが読み込まれます。</string>
     <string name="launcher_restart_failed">ホームを再起動できませんでした。root 権限を確認して、もう一度お試しください。</string>
+    <string name="feature_unavailable">システム UI でこの機能が読み込まれていません。</string>
 </resources>

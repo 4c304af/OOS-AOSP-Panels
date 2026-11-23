@@ -195,16 +195,25 @@ public class UpdateRestartPromptTest {
     assertFalse(UpdateRestartPrompt.needsPrompt("65", "65", 0, 0));
   }
 
-  @Test public void appOnlyUpgradeUsesTheRunning077ReceiverWithoutARestartPrompt() throws Exception {
-    saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, 89).commit();
+  @Test public void upgradeFrom078WithLegacyReceiverPromptsForRestart() throws Exception {
+    saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, 90)
+        .putString(UpdateRestartPrompt.SEEN_REVISION, "89").commit();
     installDates(1000, 2000);
     try (ActivityController<MainActivity> controller = open()) {
-      if ("89".equals(BuildConfig.SYSTEM_UI_REVISION)) {
-        assertNull(prompt(controller.get()));
-      } else {
-        assertNotNull(prompt(controller.get()));
-      }
+      assertNotNull(prompt(controller.get()));
       assertEquals(BuildConfig.SYSTEM_UI_REVISION, saved.getString(UpdateRestartPrompt.SEEN_REVISION, null));
+    }
+  }
+
+  @Test public void appOnlyUpgradeUsesTheLiveReceiverToDecideWhetherToPrompt() throws Exception {
+    installDates(1000, 2000);
+    for (boolean running : new boolean[]{false, true}) {
+      saved.edit().putLong(UpdateRestartPrompt.SEEN_VERSION, BuildConfig.VERSION_CODE - 1)
+          .putString(UpdateRestartPrompt.SEEN_REVISION, BuildConfig.SYSTEM_UI_REVISION).commit();
+      try (TestSystemUiReceiver host = running ? new TestSystemUiReceiver() : null;
+          ActivityController<MainActivity> controller = open()) {
+        assertEquals(!running, prompt(controller.get()) != null);
+      }
     }
   }
 

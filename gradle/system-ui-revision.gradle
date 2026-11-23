@@ -39,6 +39,4 @@ host.each { key, value ->
     digest.update(value.getBytes('UTF-8'))
     digest.update((byte) 0)
 }
-def revision = digest.digest().encodeHex().toString()
-// This exact set of hooks can talk to the already installed 0.6.77 receiver.
-ext.systemUiRevision = revision == 'cb44b280f00de2468801566f81d4ac82ac6616ceb6d7d26201481d0cc7bded50' ? '89' : revision
+ext.systemUiRevision = digest.digest().encodeHex().toString()

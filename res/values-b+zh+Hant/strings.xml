@@ -201,4 +201,5 @@
     <string name="restart_launcher">重啟系統桌面</string>
     <string name="launcher_restarted">已套用。返回桌面時會載入模組。</string>
     <string name="launcher_restart_failed">無法重啟桌面，請確認 root 授權後再試一次。</string>
+    <string name="feature_unavailable">系統介面尚未載入這個功能。</string>
 </resources>

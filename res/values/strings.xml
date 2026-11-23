@@ -201,4 +201,5 @@
     <string name="restart_launcher">Restart launcher</string>
     <string name="launcher_restarted">Launcher restart requested. Return to the home screen to load the module.</string>
     <string name="launcher_restart_failed">Could not restart the launcher. Check root access and try again.</string>
+    <string name="feature_unavailable">System UI has not loaded this feature.</string>
 </resources>
