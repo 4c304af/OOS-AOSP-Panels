@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <queries>
         <package android:name="com.android.systemui" />
+        <package android:name="com.android.launcher" />
         <package android:name="com.google.android.permissioncontroller" />
         <package android:name="com.android.permissioncontroller" />
         <package android:name="com.android.settings" />
@@ -17,6 +18,8 @@
         <provider android:name=".BluetoothDetailsSettingsProvider" android:authorities="dev.oos.nativepanels.bluetoothsettings"
             android:directBootAware="true" android:exported="true" />
         <provider android:name=".AboutPhoneSettingsProvider" android:authorities="dev.oos.nativepanels.aboutphone"
+            android:directBootAware="true" android:exported="true" />
+        <provider android:name=".LauncherIconSettingsProvider" android:authorities="dev.oos.nativepanels.launchericons"
             android:directBootAware="true" android:exported="true" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>

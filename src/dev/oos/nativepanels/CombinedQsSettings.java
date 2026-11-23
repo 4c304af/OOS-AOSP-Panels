@@ -19,6 +19,7 @@ final class CombinedQsSettings {
   }
 
   static final Uri URI = Uri.parse("content://" + AUTHORITY);
+  static final Uri LAUNCHER_URI = Uri.parse("content://dev.oos.nativepanels.launchericons");
 
   private static SharedPreferences settings(Context context) {
     return context.createDeviceProtectedStorageContext()
@@ -37,7 +38,7 @@ final class CombinedQsSettings {
     // Persist before a host process starts or creates its next dialog.
     boolean saved = settings(context).edit().putBoolean(key, enabled).commit();
     if (saved && LAUNCHER_ICONS.equals(key)) {
-      context.getContentResolver().notifyChange(URI.buildUpon().appendPath(key).build(), null);
+      context.getContentResolver().notifyChange(LAUNCHER_URI, null);
     }
     return saved;
   }
