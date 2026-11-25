@@ -17,6 +17,7 @@ final class ShadePullMotion {
   private Method listView, headsUp;
   private Pane rowPass = Pane.STOCK;
   private boolean rowsReady;
+  private int openingScrollBefore = -1, openingScrollAfter;
   private WeakReference<View> normalized = new WeakReference<>(null);
 
   ShadePullMotion(PanelRuntime runtime) { this.runtime = runtime; }
@@ -72,6 +73,14 @@ final class ShadePullMotion {
       runtime.module.deoptimize(qs.getDeclaredMethod(caller));
     runtime.module.deoptimize(qs.getDeclaredMethod("calculateBottomPosition", float.class));
     installRows(list);
+    if (usesSystemPortraitRows()) {
+      try {
+        Method expanded = Reflect.method(list, "setIsExpanded", boolean.class);
+        runtime.module.hook(expanded).setId("native-panels:compact-shade-opening-scroll")
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(openingScrollHook(list));
+        runtime.module.deoptimize(Reflect.method(list, "setExpandedHeight", float.class));
+      } catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
+    }
   }
 
   Pane pane(Object controller) throws ReflectiveOperationException {
@@ -95,6 +104,38 @@ final class ShadePullMotion {
   private static boolean usesSystemPortraitRows() {
     return "17".equals(Build.VERSION.RELEASE)
         && ("CPH2825".equalsIgnoreCase(Build.MODEL) || "CPH2825".equalsIgnoreCase(Build.PRODUCT));
+  }
+
+  XposedInterface.Hooker openingScrollHook(Class<?> list) throws ReflectiveOperationException {
+    Field expanded = Reflect.field(list, "mIsExpanded");
+    Field dragging = Reflect.field(list, "mIsBeingDragged");
+    Field forcedScroll = Reflect.field(list, "mForcedScroll");
+    Field launching = Reflect.field(list, "mLaunchingNotification");
+    Field scroller = Reflect.field(list, "mScroller");
+    Method finished = Reflect.method(scroller.getType(), "isFinished");
+    Method scroll = Reflect.method(list, "getOwnScrollY");
+    Method reset = Reflect.method(list, "resetScrollPosition");
+    return chain -> {
+      View stack = (View)chain.getThisObject();
+      boolean opening = (Boolean)chain.getArg(0) && !expanded.getBoolean(stack);
+      Object result = chain.proceed();
+      if (!opening || !usesSystemPortraitRows() || !expanded.getBoolean(stack)
+          || stack.getResources().getConfiguration().orientation != Configuration.ORIENTATION_PORTRAIT
+          || dragging.getBoolean(stack) || launching.getBoolean(stack) || forcedScroll.get(stack) != null) return result;
+      Object owner = panel.get(stack);
+      Object listScroller = scroller.get(stack);
+      if (owner == null || listScroller == null || pane(panelQs.get(owner), stack) != Pane.PORTRAIT) return result;
+      // getEdgePosition subtracts the list's own scroll. A reset during closing can
+      // be ignored by setOwnScrollY, leaving a long list scrolled over the compact QS.
+      openingScrollBefore = (Integer)scroll.invoke(stack);
+      if (openingScrollBefore > 0 || !(Boolean)finished.invoke(listScroller)) reset.invoke(stack);
+      openingScrollAfter = (Integer)scroll.invoke(stack);
+      return result;
+    };
+  }
+
+  String openingScrollReport() {
+    return openingScrollBefore < 0 ? "" : " openingListScroll(before/after)=" + openingScrollBefore + "/" + openingScrollAfter;
   }
 
   Pane listPane(View list) throws ReflectiveOperationException {

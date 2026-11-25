@@ -19,8 +19,8 @@ android {
         applicationId 'dev.oos.nativepanels'
         minSdk 30
         targetSdk 35
-        versionCode 93
-        versionName '0.6.81'
+        versionCode 94
+        versionName '0.6.82'
         buildConfigField 'String', 'SYSTEM_UI_REVISION', '"' + systemUiRevision + '"'
     }
     androidResources { additionalParameters += ['--stable-ids', file('gradle/system-ui-ids.txt').absolutePath] }

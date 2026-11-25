@@ -315,7 +315,8 @@ final class CombinedQsExpansion {
     String live = fragment == null ? "no controller update" : describe(fragment);
     // Reflective snapshots are collected only when a diagnostic report is requested.
     String close = previousCloseMs < 0 ? "" : " lockedCloseMs(ROM/scene)=" + previousCloseMs + "/" + appliedCloseMs;
-    return "QS now: " + live + close + "\n" + (bridgeError.isEmpty() ? "" : bridgeError + "\n");
+    String opening = motion == null ? "" : motion.openingScrollReport();
+    return "QS now: " + live + close + opening + "\n" + (bridgeError.isEmpty() ? "" : bridgeError + "\n");
   }
 
   private static String describe(Fragment fragment) {
