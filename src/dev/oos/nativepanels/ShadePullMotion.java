@@ -1,5 +1,6 @@
 package dev.oos.nativepanels;
 
+import android.content.res.Configuration;
 import android.view.View;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.ref.WeakReference;
@@ -13,6 +14,7 @@ final class ShadePullMotion {
   private final PanelRuntime runtime;
   private Field fragment, bar, dozing, transition, policy, split, listController, panel, panelQs, fromHeadsUp, bouncer, pinned, headsUpAway;
   private Method listView, headsUp;
+  private Field shadePanel, shadeHeight, shadeFraction, launchingNotification;
   private Pane rowPass = Pane.STOCK;
   private boolean rowsReady;
   private WeakReference<View> normalized = new WeakReference<>(null);
@@ -52,19 +54,22 @@ final class ShadePullMotion {
 
     Method translation = qs.getDeclaredMethod("getHeaderTranslation");
     Method edge = qs.getDeclaredMethod("getEdgePosition");
-    Field fraction = Reflect.field(qs, "mShadeExpandedFraction");
+    shadePanel = Reflect.optionalField(qs, "mPanelView");
+    shadeHeight = Reflect.optionalField(qs, "mShadeExpandedHeight");
+    launchingNotification = Reflect.optionalField(list, "mLaunchingNotification");
+    shadeFraction = Reflect.field(qs, "mShadeExpandedFraction");
     Field compactHeight = Reflect.field(qs, "mMinExpansionHeight");
     Method qsFraction = Reflect.method(qs, "computeExpansionFraction");
     runtime.module.hook(translation).setId("native-panels:pull-header-position").intercept(chain -> {
       float original = (Float)chain.proceed();
-      return original < 0f && fraction.getFloat(chain.getThisObject()) > 0f
+      return original < 0f && shadeFraction.getFloat(chain.getThisObject()) > 0f
           && pane(chain.getThisObject()) != Pane.STOCK ? 0f : original;
     });
     runtime.module.hook(edge).setId("native-panels:compact-pull-edge").intercept(chain -> {
       float original = (Float)chain.proceed();
       Object controller = chain.getThisObject();
       if (pane(controller) != Pane.PORTRAIT || (Float)qsFraction.invoke(controller) > 0f) return original;
-      return revealEdge(original, compactHeight.getInt(controller), fraction.getFloat(controller));
+      return revealEdge(original, compactHeight.getInt(controller), shadeFraction.getFloat(controller));
     });
     for (String caller : new String[]{"updateExpansion", "setClippingBounds"})
       runtime.module.deoptimize(qs.getDeclaredMethod(caller));
@@ -88,6 +93,26 @@ final class ShadePullMotion {
     if (owner == null || bouncer.getBoolean(owner) || fromHeadsUp.getBoolean(owner) || pinned.getBoolean(list)
         || headsUpAway.getBoolean(list) || (Boolean)headsUp.invoke(list)) return Pane.STOCK;
     return split.getBoolean(controller) ? Pane.SPLIT : Pane.PORTRAIT;
+  }
+
+  void updateNotificationClip(Object controller, View frame, PortraitNotificationClip clip) {
+    try {
+      if (controller != null && shadeFraction != null && shadePanel != null && shadeHeight != null
+          && launchingNotification != null && frame.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
+        float progress = shadeFraction.getFloat(controller);
+        if (progress < 1f && pane(controller) == Pane.PORTRAIT
+            && listView.invoke(listController.get(controller)) instanceof View stack && stack.isShown()
+            && !launchingNotification.getBoolean(stack) && stack.getRootView() == frame.getRootView()
+            && shadePanel.get(controller) instanceof View panelView) {
+          // The ROM may skip setExpandedHeight on the list during its scale/fade animation.
+          // QS still receives the panel's live window height on those same frames.
+          // The shade window may outlive its QS frame during a fast dismiss.
+          clip.update(panelView, stack, shadeHeight.getFloat(controller), frame.isShown() ? progress : 0f);
+          return;
+        }
+      }
+    } catch (ReflectiveOperationException | RuntimeException error) { runtime.combinedQs.layout.warn(error); }
+    clip.clear();
   }
 
   private Pane listPane(Object list) throws ReflectiveOperationException {

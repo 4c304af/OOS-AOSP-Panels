@@ -30,6 +30,10 @@ final class CombinedQsExpansion {
     return motion == null ? ShadePullMotion.Pane.STOCK : motion.pane(controllerRef.get());
   }
 
+  void updateNotificationClip(View frame, PortraitNotificationClip clip) {
+    if (motion != null) motion.updateNotificationClip(controllerRef.get(), frame, clip);
+  }
+
   float gridFraction(float qs, float shade) {
     return closingUpdate ? CombinedSettingsLaunch.closingExpansion(qs, shade) : qs;
   }

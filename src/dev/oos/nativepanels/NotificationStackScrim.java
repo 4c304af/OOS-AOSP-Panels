@@ -17,6 +17,7 @@ import java.lang.reflect.Method;
 
 /** Paint the notification surface under the panel children in the native scrim's coordinates. */
 final class NotificationStackScrim {
+  final PortraitNotificationClip portraitClip = new PortraitNotificationClip();
   private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
   private final Path shape = new Path();
   private final Rect bounds = new Rect();
@@ -67,11 +68,13 @@ final class NotificationStackScrim {
         .setId("native-panels:split-notification-clip")
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
           View view = (View)chain.getThisObject();
-          if (splitLayer == null || !splitLayer.forList(view)) return chain.proceed();
+          boolean split = splitLayer != null && splitLayer.forList(view);
+          if (!split && !portraitClip.appliesTo(view)) return chain.proceed();
           Canvas canvas = (Canvas)chain.getArg(0);
           int save = canvas.save();
           try {
-            splitLayer.clipRows(canvas);
+            if (split) splitLayer.clipRows(canvas);
+            else portraitClip.clip(canvas);
             return chain.proceed();
           } finally { canvas.restoreToCount(save); }
         });
@@ -155,6 +158,7 @@ final class NotificationStackScrim {
     if (qs != controller || split != splitShade) {
       hide();
       stack = null;
+      portraitClip.clear();
     }
     controller = qs;
     splitShade = split;
@@ -326,6 +330,7 @@ final class NotificationStackScrim {
   }
 
   void release() {
+    portraitClip.clear();
     endPull();
     View old = layer;
     layer = drawHost = panel = nativeScrim = stack = null;
@@ -339,7 +344,7 @@ final class NotificationStackScrim {
   String report() {
     return !installed ? "unavailable" : "draws=" + draws + " raw(first/min/max)=" + rawFirst + "/" + rawMin + "/" + rawMax +
         " painted(first/min/max)=" + firstTop + "/" + minTop + "/" + maxTop + " firstShade=" + firstShade +
-        " splitColumn=" + (splitLayer == null ? lastColumn : splitLayer.status()) + " firstHost=" + firstHost + " firstAlpha=" + firstAlpha + " radius=" + Math.round(radii[0]) + "/" + Math.round(radii[2]) + " lastDrawAlpha=" + lastDrawAlpha +
+        " splitColumn=" + (splitLayer == null ? lastColumn : splitLayer.status()) + " firstHost=" + firstHost + " firstAlpha=" + firstAlpha + " radius=" + Math.round(radii[0]) + "/" + Math.round(radii[2]) + " lastDrawAlpha=" + lastDrawAlpha + portraitClip.report() +
         (problem.isEmpty() ? "" : " " + problem);
   }
 }
