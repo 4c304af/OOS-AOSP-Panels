@@ -1,7 +1,6 @@
 package dev.oos.nativepanels;
 
 import android.content.res.Configuration;
-import android.os.Build;
 import android.view.View;
 import io.github.libxposed.api.XposedInterface;
 import java.lang.ref.WeakReference;
@@ -15,6 +14,9 @@ final class ShadePullMotion {
   private final PanelRuntime runtime;
   private Field fragment, bar, dozing, transition, policy, split, listController, panel, panelQs, fromHeadsUp, bouncer, pinned, headsUpAway;
   private Method listView, headsUp;
+  private Field listExtension;
+  private Method shouldAnimateStackAlpha;
+  private Boolean lastStackAlpha;
   private Pane rowPass = Pane.STOCK;
   private boolean rowsReady;
   private int openingScrollBefore = -1, openingScrollAfter;
@@ -72,15 +74,13 @@ final class ShadePullMotion {
     for (String caller : new String[]{"updateExpansion", "setClippingBounds"})
       runtime.module.deoptimize(qs.getDeclaredMethod(caller));
     runtime.module.deoptimize(qs.getDeclaredMethod("calculateBottomPosition", float.class));
+    try {
+      Method expanded = Reflect.method(list, "setIsExpanded", boolean.class);
+      runtime.module.hook(expanded).setId("native-panels:compact-shade-opening-scroll")
+          .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(openingScrollHook(list));
+      runtime.module.deoptimize(Reflect.method(list, "setExpandedHeight", float.class));
+    } catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
     installRows(list);
-    if (usesSystemPortraitRows()) {
-      try {
-        Method expanded = Reflect.method(list, "setIsExpanded", boolean.class);
-        runtime.module.hook(expanded).setId("native-panels:compact-shade-opening-scroll")
-            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(openingScrollHook(list));
-        runtime.module.deoptimize(Reflect.method(list, "setExpandedHeight", float.class));
-      } catch (ReflectiveOperationException missing) { runtime.combinedQs.layout.warn(missing); }
-    }
   }
 
   Pane pane(Object controller) throws ReflectiveOperationException {
@@ -101,11 +101,6 @@ final class ShadePullMotion {
     return split.getBoolean(controller) ? Pane.SPLIT : Pane.PORTRAIT;
   }
 
-  private static boolean usesSystemPortraitRows() {
-    return "17".equals(Build.VERSION.RELEASE)
-        && ("CPH2825".equalsIgnoreCase(Build.MODEL) || "CPH2825".equalsIgnoreCase(Build.PRODUCT));
-  }
-
   XposedInterface.Hooker openingScrollHook(Class<?> list) throws ReflectiveOperationException {
     Field expanded = Reflect.field(list, "mIsExpanded");
     Field dragging = Reflect.field(list, "mIsBeingDragged");
@@ -119,7 +114,7 @@ final class ShadePullMotion {
       View stack = (View)chain.getThisObject();
       boolean opening = (Boolean)chain.getArg(0) && !expanded.getBoolean(stack);
       Object result = chain.proceed();
-      if (!opening || !usesSystemPortraitRows() || !expanded.getBoolean(stack)
+      if (!opening || !expanded.getBoolean(stack)
           || stack.getResources().getConfiguration().orientation != Configuration.ORIENTATION_PORTRAIT
           || dragging.getBoolean(stack) || launching.getBoolean(stack) || forcedScroll.get(stack) != null) return result;
       Object owner = panel.get(stack);
@@ -134,20 +129,43 @@ final class ShadePullMotion {
     };
   }
 
-  String openingScrollReport() {
-    return openingScrollBefore < 0 ? "" : " openingListScroll(before/after)=" + openingScrollBefore + "/" + openingScrollAfter;
+  String notificationPullReport() {
+    String alpha = lastStackAlpha == null ? "unknown" : lastStackAlpha ? "stack" : "rows";
+    String scroll = openingScrollBefore < 0 ? "" : " openingListScroll(before/after)=" + openingScrollBefore + "/" + openingScrollAfter;
+    return " portraitNotifAlpha=" + alpha + scroll;
+  }
+
+  void bindRowAnimation(Class<?> list, Class<?> ext) throws NoSuchFieldException {
+    listExtension = Reflect.field(list, "mExt");
+    try {
+      Method query = Reflect.method(ext, "getShouldNsslAlphaAnimation");
+      shouldAnimateStackAlpha = query.getReturnType() == boolean.class ? query : null;
+    } catch (NoSuchMethodException | SecurityException | LinkageError unavailable) {
+      shouldAnimateStackAlpha = null;
+    }
+  }
+
+  private Boolean systemAnimatesStackAlpha(View list) {
+    if (shouldAnimateStackAlpha == null) return null;
+    try {
+      Object extension = listExtension.get(list);
+      if (shouldAnimateStackAlpha.getDeclaringClass().isInstance(extension))
+        return (Boolean)shouldAnimateStackAlpha.invoke(extension);
+    } catch (ReflectiveOperationException | RuntimeException unavailable) {
+      // Leave ownership with SystemUI if this stack cannot report its animation mode.
+    }
+    return null;
   }
 
   Pane listPane(View list) throws ReflectiveOperationException {
     Object owner = panel.get(list);
     Pane mode = owner == null ? Pane.STOCK : pane(panelQs.get(owner), list);
-    // ColorOS can animate the whole list instead of individual rows. On the reported
-    // Reno15 build the list must keep both its show and hide callbacks, including
-    // the alpha restored on the next pull. QS placement still uses pane(controller).
-    if (mode == Pane.PORTRAIT && usesSystemPortraitRows()
-        && list.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT)
-      return Pane.STOCK;
-    return mode;
+    if (mode != Pane.PORTRAIT || list.getResources().getConfiguration().orientation != Configuration.ORIENTATION_PORTRAIT)
+      return mode;
+    // This is the same predicate SystemUI uses to attach its whole-list alpha callback.
+    // Override row opacity only when the active stack explicitly uses row animations.
+    lastStackAlpha = systemAnimatesStackAlpha(list);
+    return Boolean.FALSE.equals(lastStackAlpha) ? Pane.PORTRAIT : Pane.STOCK;
   }
 
   static float revealEdge(float nativeEdge, int compactHeight, float progress) {
@@ -178,7 +196,7 @@ final class ShadePullMotion {
   private void installRows(Class<?> list) throws ReflectiveOperationException {
     Class<?> rows = runtime.type("com.oplus.systemui.panelanimation.notification.OplusNotificationRowShowAnimationExImpl");
     Class<?> ext = runtime.type("com.oplus.systemui.statusbar.notification.stack.NotificationStackScrollLayoutExtImpl");
-    Field extension = Reflect.field(list, "mExt");
+    bindRowAnimation(list, ext);
     Field manager = Reflect.field(ext, "appearAnimationManager");
     Method running = manager.getType().getMethod("isAnimationRunning", View.class);
     Method cancel = manager.getType().getMethod("cancelViewAnimation", View.class, String.class);
@@ -199,7 +217,7 @@ final class ShadePullMotion {
         } else if (normalized.get() != target && controller.get(target) != null) {
           // A previously hidden OOS list can still have an element-show animator or
           // its final scale/alpha. Return alpha to the native controller's visibility limits.
-          Object animator = manager.get(extension.get(target));
+          Object animator = manager.get(listExtension.get(target));
           if ((Boolean)running.invoke(animator, target)) cancel.invoke(animator, target, "Combined shade pull");
           target.setScaleX(1f);
           target.setScaleY(1f);

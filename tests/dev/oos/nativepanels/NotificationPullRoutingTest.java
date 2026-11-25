@@ -18,7 +18,6 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
-import org.robolectric.shadows.ShadowBuild;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, qualifiers = "port")
@@ -41,6 +40,7 @@ public class NotificationPullRoutingTest {
     boolean mIsExpanded, mIsBeingDragged, mLaunchingNotification;
     View mForcedScroll;
     final Scroller mScroller = new Scroller();
+    Extension mExt = new Extension();
     int ownScrollY, resets;
     int getOwnScrollY() { return ownScrollY; }
     void resetScrollPosition() { ownScrollY = 0; mScroller.running = false; resets++; }
@@ -51,6 +51,13 @@ public class NotificationPullRoutingTest {
     boolean running;
     boolean isFinished() { return !running; }
   }
+  static class Extension {
+    boolean stackAlpha = true;
+    private boolean getShouldNsslAlphaAnimation() { return stackAlpha; }
+  }
+  static class UnavailableExtension extends Extension {
+    private boolean getShouldNsslAlphaAnimation() { throw new IllegalStateException("Not initialized"); }
+  }
 
   final Controller qs = new Controller();
   Stack stack;
@@ -58,8 +65,6 @@ public class NotificationPullRoutingTest {
   ShadeDecor decor;
 
   @Before public void setUp() throws Exception {
-    ShadowBuild.setVersionRelease("17");
-    ShadowBuild.setModel("CPH2825");
     Activity activity = Robolectric.buildActivity(Activity.class).setup().visible().get();
     FrameLayout frame = new FrameLayout(activity);
     activity.setContentView(frame);
@@ -74,6 +79,7 @@ public class NotificationPullRoutingTest {
     Reflect.field(ShadeLayout.class, "decor").set(layout, new WeakReference<>(decor));
     Reflect.field(ShadeLayout.class, "editing").set(layout, Reflect.method(QsFragment.class, "isEditing"));
     motion = new ShadePullMotion(runtime);
+    motion.bindRowAnimation(Stack.class, Extension.class);
     bind(Controller.class, "fragment", "bar", "transition", "policy", "split", "dozing", "listController");
     bind(Stack.class, "panel", "panelQs", "bouncer", "fromHeadsUp", "pinned", "headsUpAway");
     Reflect.field(ShadePullMotion.class, "listView").set(motion, Reflect.method(Stack.class, "getView"));
@@ -104,7 +110,7 @@ public class NotificationPullRoutingTest {
     expandStack(true);
     assertEquals(0, stack.ownScrollY);
     assertEquals(STOCK, motion.listPane(stack));
-    assertEquals(" openingListScroll(before/after)=1188/0", motion.openingScrollReport());
+    assertEquals(" portraitNotifAlpha=stack openingListScroll(before/after)=1188/0", motion.notificationPullReport());
     stack.ownScrollY = 420;
     expandStack(true); // another height update in the same pull
     assertEquals(420, stack.ownScrollY);
@@ -140,13 +146,26 @@ public class NotificationPullRoutingTest {
     qs.bar = CombinedQsExpansion.SHADE;
     qs.split = true;
     expandStack(true);
-    expandStack(false);
-    qs.split = false;
-    ShadowBuild.setModel("CPH2653");
-    ShadowBuild.setProduct("CPH2653");
-    expandStack(true);
     assertEquals(800, stack.ownScrollY);
     assertEquals(0, stack.resets);
+  }
+
+  @Test public void scrollRecoveryAlsoWorksWithRowAlphaAndWithAnUnknownAnimationMode() throws Throwable {
+    stack.mExt.stackAlpha = false;
+    assertEquals(PORTRAIT, motion.listPane(stack));
+    expandStack(true);
+    assertEquals(0, stack.resets);
+    expandStack(false);
+    stack.ownScrollY = 200;
+    expandStack(true);
+    assertEquals(0, stack.ownScrollY);
+    expandStack(false);
+    motion.bindRowAnimation(Stack.class, Object.class);
+    stack.ownScrollY = 300;
+    assertEquals(STOCK, motion.listPane(stack));
+    expandStack(true);
+    assertEquals(0, stack.ownScrollY);
+    assertEquals(2, stack.resets);
   }
 
   @Test public void unfinishedScrollAtZeroCannotAdvanceTheNextPull() throws Throwable {
@@ -156,7 +175,7 @@ public class NotificationPullRoutingTest {
     assertFalse(stack.mScroller.running);
   }
 
-  @Test public void renoUsesSystemRowsOnHideAndReopenWhileQsKeepsItsOwnMotion() throws Exception {
+  @Test public void wholeListAnimationKeepsSystemShowAndHideWhileQsKeepsItsOwnMotion() throws Exception {
     for (int visibility : new int[]{View.VISIBLE, View.INVISIBLE, View.VISIBLE}) {
       decor.frame.setVisibility(visibility);
       assertEquals(STOCK, motion.listPane(stack));
@@ -168,9 +187,8 @@ public class NotificationPullRoutingTest {
     assertEquals(STOCK, motion.listPane(stack));
   }
 
-  @Test public void sameAndroidVersionOnOnePlusKeepsOriginalRowsAndHeadsUpRouting() throws Exception {
-    ShadowBuild.setModel("CPH2653");
-    ShadowBuild.setProduct("CPH2653");
+  @Test public void rowAnimationKeepsClassicMotionAndRespectsHeadsUpAndKeyguard() throws Exception {
+    stack.mExt.stackAlpha = false;
     assertEquals(PORTRAIT, motion.listPane(stack));
     stack.pinned = true;
     assertEquals(STOCK, motion.listPane(stack));
@@ -181,19 +199,30 @@ public class NotificationPullRoutingTest {
     assertEquals(PORTRAIT, motion.listPane(stack));
   }
 
-  @Test public void matchesExactProductAndAndroidReleaseWhenModelIsAMarketingName() throws Exception {
-    ShadowBuild.setModel("OPPO Reno15 5G");
-    ShadowBuild.setProduct("CPH2825");
+  @Test public void followsCurrentExtensionAndAnimationModeOnTheSameDevice() throws Exception {
     assertEquals(STOCK, motion.listPane(stack));
-    ShadowBuild.setVersionRelease("16");
+    stack.mExt.stackAlpha = false;
     assertEquals(PORTRAIT, motion.listPane(stack));
-    ShadowBuild.setVersionRelease("17");
-    ShadowBuild.setProduct("CPH28250");
+    stack.mExt = null;
+    assertEquals(STOCK, motion.listPane(stack));
+    stack.mExt = new Extension();
+    assertEquals(STOCK, motion.listPane(stack));
+    stack.mExt.stackAlpha = false;
     assertEquals(PORTRAIT, motion.listPane(stack));
   }
 
+  @Test public void absentOrFailingAnimationQueryPreservesSystemMotion() throws Exception {
+    stack.mExt.stackAlpha = false;
+    motion.bindRowAnimation(Stack.class, Object.class);
+    assertEquals(STOCK, motion.listPane(stack));
+    stack.mExt = new UnavailableExtension();
+    motion.bindRowAnimation(Stack.class, UnavailableExtension.class);
+    assertEquals(STOCK, motion.listPane(stack));
+    assertEquals(" portraitNotifAlpha=unknown", motion.notificationPullReport());
+  }
+
   @Test @Config(qualifiers = "land")
-  public void renoKeepsPreviousLandscapeRoutingForSingleAndSplitPanes() throws Throwable {
+  public void landscapeKeepsPreviousRoutingForSingleAndSplitPanes() throws Throwable {
     stack.ownScrollY = 800;
     expandStack(true);
     assertEquals(800, stack.ownScrollY);
