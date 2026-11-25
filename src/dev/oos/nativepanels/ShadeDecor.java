@@ -677,8 +677,6 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     if (preview.visible() && (!frame.hasWindowFocus() || runtime.locked())) preview.reset();
     if (disposed) return true;
     checkOrientation();
-    // The window can still draw notifications after the QS fragment stops being visible.
-    if (layout != null) runtime.combinedQs.expansion.updateNotificationClip(frame, layout.notificationScrim.portraitClip);
     if (!open) return true;
     if ((context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) != styledNightMode) style();
     try {
