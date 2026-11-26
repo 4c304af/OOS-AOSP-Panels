@@ -559,6 +559,8 @@ final class ShadeLayout {
 
   ShadeDecor touchOwner() { return active() ? decor.get() : null; }
 
+  ShadeDecor visibleDecor() { return gridVisible() ? decor.get() : null; }
+
   void bindHeader(Fragment fragment, Object controller) {
     if (selected.get() != fragment || controller == null) return;
     if (headerController.get() != controller) headerController = new WeakReference<>(controller);

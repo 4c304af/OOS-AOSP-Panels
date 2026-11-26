@@ -126,7 +126,7 @@ final class CombinedTouch {
     r.module.hook(container.getMethod("dispatchTouchEvent", MotionEvent.class)).setId("native-panels:qs-gesture").intercept(c -> {
       MotionEvent e = (MotionEvent)c.getArg(0);
       if (e.getActionMasked() != MotionEvent.ACTION_DOWN) return c.proceed();
-      ShadeDecor candidate = r.combinedQs.layout.touchOwner();
+      ShadeDecor candidate = r.combinedQs.layout.visibleDecor();
       if (candidate == null || !belongs(candidate.frame, (View)c.getThisObject()))
         return c.proceed();
       owner = candidate;
@@ -233,7 +233,7 @@ final class CombinedTouch {
       }
       if (e.getActionMasked() == MotionEvent.ACTION_MOVE && frameDown == e.getDownTime()) {
         View frameView = (View)c.getThisObject();
-        ShadeDecor active = r.combinedQs.layout.touchOwner();
+        ShadeDecor active = r.combinedQs.layout.visibleDecor();
         int slop = android.view.ViewConfiguration.get(frameView.getContext()).getScaledTouchSlop();
         if (e.getPointerCount() == 1 && active != null && active.frame == frameView
             && !verticalDrag(e.getX() - frameX, e.getY() - frameY, slop)) return false;
@@ -269,7 +269,7 @@ final class CombinedTouch {
       if (action == MotionEvent.ACTION_DOWN) {
         gesture = -1;
         vertical = false;
-        ShadeDecor target = r.combinedQs.layout.touchOwner();
+        ShadeDecor target = r.combinedQs.layout.visibleDecor();
         if (target == null || !r.combinedQs.layout.isSelected(qs.get(c.getThisObject()))) return c.proceed();
         View view = (View)panel.get(c.getThisObject());
         if (!belongs(target.frame, view) || e.getPointerCount() != 1) return c.proceed();
@@ -301,7 +301,7 @@ final class CombinedTouch {
         View view = (View)panel.get(c.getThisObject());
         int slop = android.view.ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
         vertical = verticalDrag(e.getX() - startX, e.getY() - startY, slop);
-        if (!vertical && r.combinedQs.layout.active()) return false;
+        if (!vertical && r.combinedQs.layout.gridVisible()) return false;
       }
       return c.proceed();
     });
@@ -452,6 +452,9 @@ final class CombinedTouch {
 
   private boolean hitControl(ShadeDecor o, float x, float y) throws Exception {
     if (!o.frame.isShown() || !o.frame.isAttachedToWindow() || r.combinedQs.layout.isEditing()) return false;
+    if (o.hitClock(x, y)) return true;
+    // On keyguard only the clock uses this routing. Its native action handles unlocking.
+    if (o != r.combinedQs.layout.touchOwner()) return false;
     if (host == null || !host.isAttachedToWindow() || !belongs(host, o.frame)) host = findHost(o.frame);
     if (host == null) return false;
     if (o.hitControl(x, y)) return true;

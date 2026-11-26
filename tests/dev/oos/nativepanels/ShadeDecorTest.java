@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.os.BatteryManager;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -204,6 +205,77 @@ public class ShadeDecorTest {
     assertEquals(android.view.View.INVISIBLE, big.getVisibility());
     assertEquals(1f, small.getAlpha(), .001f);
     decor.dispose();
+  }
+
+  public static final class ClockGraph {
+    int launches;
+    final ClockGraph clockInteractorProvider = this;
+    public ClockGraph get() { return this; }
+    public void launchClockActivity() { launches++; }
+  }
+
+  @Test public void onlyTheVisibleClockOpensTheSystemClockAction() {
+    var activity = org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup().get();
+    var runtime = new PanelRuntime(null, getClass().getClassLoader());
+    var graph = new ClockGraph();
+    runtime.graph = graph;
+    ShadeDecor decor = new ShadeDecor(new FrameLayout(activity), null, runtime);
+    decor.install();
+    FrameLayout host = decor.createHeaderHost(activity);
+    activity.setContentView(host);
+    LinearLayout row = (LinearLayout)host.getChildAt(0);
+    View small = row.getChildAt(0), date = row.getChildAt(1), large = host.getChildAt(1);
+    decor.setOpen(true, false);
+    for (float progress : new float[]{0f, .3f, .7f, 1f, 0f}) {
+      decor.expansion(progress);
+      decor.positionHeader(Float.NaN, 0f);
+      host.measure(View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY),
+          View.MeasureSpec.makeMeasureSpec(decor.expandedHeight(), View.MeasureSpec.EXACTLY));
+      host.layout(0, 0, 900, decor.expandedHeight());
+      View active = progress < .5f ? small : large;
+      View inactive = active == small ? large : small;
+      assertTrue(active.isClickable() && active.isFocusable());
+      assertEquals("android.widget.Button", active.getAccessibilityClassName());
+      assertFalse(inactive.isClickable() || inactive.isFocusable());
+      assertFalse(date.isClickable());
+      int[] xy = new int[2];
+      active.getLocationInWindow(xy);
+      assertTrue(decor.hitClock(xy[0] + 1, xy[1] + 1));
+      assertFalse(decor.hitClock(899, xy[1] + 1));
+      int before = graph.launches;
+      inactive.performClick();
+      date.performClick();
+      assertEquals(before, graph.launches);
+      int[] origin = new int[2];
+      host.getLocationInWindow(origin);
+      float x = xy[0] - origin[0] + 1, y = xy[1] - origin[1] + 1;
+      dispatchTap(host, x, y, MotionEvent.ACTION_CANCEL);
+      assertEquals(before, graph.launches);
+      dispatchTap(host, x, y, MotionEvent.ACTION_UP);
+      assertEquals(before + 1, graph.launches);
+    }
+    runtime.graph = new ClockGraph();
+    decor.setOpen(true, true);
+    decor.positionHeader(1f, 0f);
+    large.performClick();
+    assertEquals(1, ((ClockGraph)runtime.graph).launches);
+    decor.setOpen(false, false);
+    large.performClick();
+    assertEquals(1, ((ClockGraph)runtime.graph).launches);
+    runtime.graph = null;
+    decor.positionHeader(1f, 0f);
+    assertFalse(large.hasOnClickListeners());
+    decor.dispose();
+  }
+
+  private static void dispatchTap(View host, float x, float y, int endAction) {
+    long t = android.os.SystemClock.uptimeMillis();
+    for (int action : new int[]{MotionEvent.ACTION_DOWN, endAction}) {
+      MotionEvent event = MotionEvent.obtain(t, action == MotionEvent.ACTION_DOWN ? t : t + 30, action, x, y, 0);
+      try { host.dispatchTouchEvent(event); }
+      finally { event.recycle(); }
+    }
+    Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
   }
 
   @Test public void directLockPullMovesAndFadesTheExpandedClockWithoutMorphingFromTheSmallClock() {

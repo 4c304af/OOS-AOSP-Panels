@@ -85,6 +85,8 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   private final Context context;
   private final LinearLayout header;
   private final TextClock clock, date;
+  private Object clockGraph;
+  private final android.graphics.Rect clockBounds = new android.graphics.Rect();
   private final TextView battery;
   record ButtonColors(int activeBackground, int activeIcon, int inactiveBackground, int inactiveIcon) {}
   private final java.util.Map<ImageButton, ButtonColors> buttons = new java.util.WeakHashMap<>();
@@ -143,8 +145,8 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       }
     };
     header.setGravity(Gravity.CENTER_VERTICAL);
-    clock = new TextClock(context);
-    expandedClock = new TextClock(context);
+    clock = headerClock(context);
+    expandedClock = headerClock(context);
     expandedClock.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
     expandedClock.setSingleLine(true);
     expandedClock.setIncludeFontPadding(false);
@@ -166,7 +168,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       text.setIncludeFontPadding(false);
     }
     date.setEllipsize(TextUtils.TruncateAt.END);
-    header.addView(clock);
+    header.addView(clock, new LinearLayout.LayoutParams(-2, -1));
     LinearLayout.LayoutParams fill = new LinearLayout.LayoutParams(0, -2, 1f);
     fill.setMarginStart(dp(10));
     fill.setMarginEnd(dp(8));
@@ -358,6 +360,10 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     float p = direct ? 1f : splitLayout() ? 0f : fraction;
     int extra = expandedHeight() - headerHeight();
     float opacity = LockscreenQsMotion.chromeAlpha(lockProgress);
+    if (runtime != null && clockGraph != runtime.graph) bindClockAction();
+    boolean clockVisible = open && opacity > 0f && !preview.visible();
+    clockTarget(clock, clockVisible && p < .5f);
+    clockTarget(expandedClock, clockVisible && p >= .5f);
     if (!sharedHeader.placed()) header.setAlpha(opacity);
     header.setTranslationY(extra * p + (direct
         ? LockscreenQsMotion.offset(lockProgress, dp(LockscreenQsMotion.HEADER_DP), parentTranslation) : 0f));
@@ -440,6 +446,45 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       headerBound = true;
       statusIcons.active(listening);
     } catch (Throwable e) { layout.warn(e); }
+  }
+
+  private static TextClock headerClock(Context context) {
+    return new TextClock(context) {
+      @Override public CharSequence getAccessibilityClassName() {
+        return isClickable() ? android.widget.Button.class.getName() : super.getAccessibilityClassName();
+      }
+    };
+  }
+
+  private void bindClockAction() {
+    clockGraph = runtime.graph;
+    View.OnClickListener action = null;
+    if (clockGraph != null) {
+      try {
+        Object interactor = runtime.provider("clockInteractorProvider");
+        var launch = Reflect.method(interactor.getClass(), "launchClockActivity");
+        action = source -> {
+          if (!open || disposed || !source.isShown() || !source.isClickable() || preview.visible()) return;
+          try { Reflect.invoke(launch, interactor); }
+          catch (Throwable failure) { layout.warn(failure); }
+        };
+      } catch (Throwable failure) { layout.warn(failure); }
+    }
+    clock.setOnClickListener(action);
+    expandedClock.setOnClickListener(action);
+  }
+
+  private static void clockTarget(TextClock view, boolean active) {
+    boolean target = active && view.hasOnClickListeners();
+    if (view.isClickable() != target) view.setClickable(target);
+    if (view.isFocusable() != target) view.setFocusable(target);
+  }
+
+  boolean hitClock(float x, float y) {
+    TextClock target = expandedClock.isClickable() ? expandedClock : clock;
+    if (!open || !target.isClickable() || !target.isShown() || !target.getGlobalVisibleRect(clockBounds)) return false;
+    target.getRootView().getLocationInWindow(location);
+    return clockBounds.contains((int)Math.floor(x - location[0]), (int)Math.floor(y - location[1]));
   }
 
   boolean hitControl(float x, float y) {
