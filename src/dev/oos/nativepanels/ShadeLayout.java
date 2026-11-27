@@ -35,11 +35,12 @@ final class ShadeLayout {
   private Object headerSize;
   private boolean open, lockedShade;
   private boolean measuringExpanded;
+  private final CompactQsRoot compactRoot = new CompactQsRoot();
   private boolean measuringStackedGrid;
   private final java.util.Map<Object, WeakReference<ShadeDecor>> compactScrollBodies = new java.util.WeakHashMap<>();
   private final java.util.Set<Class<?>> compactScrollClasses = new java.util.HashSet<>();
   private final ThreadLocal<CompactScroller> compactScroller = new ThreadLocal<>();
-  private int compactWeights, compactScrollers;
+  private int compactWeights, compactScrollers, compactRoots;
   private static final class CompactScroller {
     final ShadeDecor owner;
     boolean sized;
@@ -129,7 +130,13 @@ final class ShadeLayout {
       runtime.module.hook(expandedElement).setId("native-panels:expanded-header-space").intercept(chain -> {
         boolean previous = measuringExpanded;
         measuringExpanded = chain.getThisObject() == selected.get();
-        try { return chain.proceed(); } finally { measuringExpanded = previous; }
+        ShadeDecor owner = decor.get();
+        Boolean previousRoot = compactRoot.enter(measuringExpanded && owner != null && owner.compactExpandedLayout());
+        try { return chain.proceed(); }
+        finally {
+          compactRoot.leave(previousRoot);
+          measuringExpanded = previous;
+        }
       });
       runtime.module.deoptimize(expandedElement);
       Class<?> fragmentModel = runtime.type("com.android.systemui.qs.composefragment.viewmodel.QSFragmentComposeViewModel");
@@ -227,7 +234,14 @@ final class ShadeLayout {
     Object base = modifier.getField("Companion").get(null);
     Class<?> sizes = runtime.type("androidx.compose.foundation.layout.SizeKt");
     Method fillWidth = sizes.getMethod("fillMaxWidth", modifier, float.class);
+    Method fillHeight = sizes.getMethod("fillMaxHeight", modifier, float.class);
     Method fillSize = sizes.getMethod("fillMaxSize", modifier, float.class);
+    // QuickSettingsElement's default root modifier is inlined to Modifier.Companion.
+    // Keep its full scene bounds through the modifier it actually uses. Otherwise
+    // content-sized weights also shrink the scene root during anchored transitions.
+    Method semanticAction = fragment.getDeclaredMethod("collapseExpandSemanticAction", modifier, String.class);
+    runtime.module.hook(semanticAction).setId("native-panels:compact-qs-root-height")
+        .intercept(compactRoot.heightHook(fillHeight, () -> compactRoots++));
     runtime.module.hook(fillSize).setId("native-panels:compact-qs-scroll-height").intercept(chain -> {
       CompactScroller scope = compactScroller.get();
       if (scope != null && !scope.sized && scope.owner == decor.get()
@@ -668,7 +682,7 @@ final class ShadeLayout {
   String report() {
     ShadeDecor current = decor.get();
     return (current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion
-        + " compactWeight/scroll=" + compactWeights + "/" + compactScrollers + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning))
+        + " compactWeight/scroll/root=" + compactWeights + "/" + compactScrollers + "/" + compactRoots + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning))
         + "\n" + brightness.report();
   }
 
