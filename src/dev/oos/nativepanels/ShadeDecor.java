@@ -9,7 +9,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.graphics.Insets;
-import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.BatteryManager;
@@ -404,6 +403,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     // Estimate the inset before the first composition; the measured insets take over at layout.
     int status = context.getResources().getIdentifier("status_bar_height", "dimen", "android");
     top = status == 0 ? 0 : context.getResources().getDimensionPixelSize(status);
+    expandedTop = aospStatusBar ? top + dp(8) : 0;
     header.setPadding(dp(16), top, dp(16), 0);
     header.setLayoutParams(new FrameLayout.LayoutParams(-1, headerHeight(), Gravity.TOP));
     FrameLayout.LayoutParams big = new FrameLayout.LayoutParams(-2,
@@ -693,16 +693,6 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     } catch (Throwable e) { layout.warn(e); }
   }
 
-  private static int expandedCutoutInset(WindowInsets window, int frameTop, int windowWidth) {
-    android.view.DisplayCutout cutout = window.getDisplayCutout();
-    if (cutout == null) return 0;
-    Rect topCutout = cutout.getBoundingRectTop();
-    int center = windowWidth / 2;
-    // A center hole-punch sits between the two ends of the expanded header.
-    if (windowWidth > 0 && topCutout.left < center && topCutout.right > center) return 0;
-    return Math.max(0, cutout.getSafeInsetTop() - Math.max(0, frameTop));
-  }
-
   private void measureHeaderInsets(WindowInsets window) {
     if (sharedHeader.placed() || window == null) return;
     Insets insets = window.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout());
@@ -711,7 +701,9 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     int frameLeft = SplitShadeChrome.layoutCoordinate(frame, true);
     int windowWidth = frame.getRootView().getWidth();
     int measuredTop = Math.max(0, insets.top - Math.max(0, frameTop));
-    int measuredExpandedTop = aospStatusBar ? expandedCutoutInset(window, frameTop, windowWidth) : 0;
+    // Keep the expanded clock below the stable status-bar/cutout inset, including
+    // center holes. Space already reserved by the frame is subtracted above.
+    int measuredExpandedTop = aospStatusBar ? measuredTop + dp(8) : 0;
     int left = Math.max(0, insets.left - frameLeft);
     int right = Math.max(0, insets.right - (windowWidth - frameLeft - frame.getWidth()));
     if (splitLayout()) lastSplitInset = measuredTop; else lastPortraitInset = measuredTop;

@@ -233,13 +233,18 @@ public class ShadeDecorTest {
     assertEquals(0, frame.getChildCount());
   }
 
-  @Test public void android17ExpandedHeaderFitsTheCenterCutoutAndReleasesCompactClockSpace() throws Exception {
+  @Test public void android17ExpandedHeaderReservesStableTopSpaceAndReleasesCompactClockSpace() throws Exception {
     Context context = RuntimeEnvironment.getApplication();
     float density = context.getResources().getDisplayMetrics().density;
     int width = Math.round(360f * density);
     int inset = Math.round(44f * density);
+    int breathing = Math.round(8f * density);
+    int height = Math.round(600f * density);
+    FrameLayout root = new FrameLayout(context);
+    root.layout(0, 0, width, height);
     FrameLayout frame = new FrameLayout(context);
-    frame.layout(0, 0, width, Math.round(600f * density));
+    root.addView(frame);
+    frame.layout(0, 0, width, height);
     ShadeDecor decor = new ShadeDecor(frame, null, null);
     var style = ShadeDecor.class.getDeclaredField("aospStatusBar");
     style.setAccessible(true);
@@ -255,6 +260,10 @@ public class ShadeDecorTest {
     position.setAccessible(true);
     var measureInsets = ShadeDecor.class.getDeclaredMethod("measureHeaderInsets", WindowInsets.class);
     measureInsets.setAccessible(true);
+    decor.expansion(1f);
+    position.invoke(decor, true);
+    assertEquals(statusRow.getPaddingTop() + breathing, expandedClock.getTranslationY(), .001f);
+    decor.expansion(0f);
     Rect center = new Rect(width / 2 - 8, 0, width / 2 + 8, inset);
     measureInsets.invoke(decor, new WindowInsets.Builder()
         .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
@@ -271,7 +280,8 @@ public class ShadeDecorTest {
     position.invoke(decor, true);
     int compactExpandedHeight = host.getLayoutParams().height;
     assertTrue("Expanded header should follow its rows, not a fixed 120dp scene minimum",
-        compactExpandedHeight < Math.round(120f * density));
+        compactExpandedHeight - inset - breathing < Math.round(120f * density));
+    assertEquals(inset + breathing, expandedClock.getTranslationY(), .001f);
     assertTrue(expandedClock.getLayoutParams().height >= Math.round(48f * density));
     float rowTop = statusRow.getTranslationY() + statusRow.getPaddingTop();
     float clockBottom = expandedClock.getTranslationY() + expandedClock.getLayoutParams().height;
@@ -290,7 +300,24 @@ public class ShadeDecorTest {
         .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
         .setDisplayCutout(new DisplayCutout(Insets.of(0, inset, 0, 0), null, sideCutout, null, null))
         .build());
-    assertEquals(compactExpandedHeight + inset, host.getLayoutParams().height);
+    position.invoke(decor, true);
+    assertEquals(compactExpandedHeight, host.getLayoutParams().height);
+    assertEquals(inset + breathing, expandedClock.getTranslationY(), .001f);
+
+    WindowInsets statusOnly = new WindowInsets.Builder()
+        .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
+        .build();
+    measureInsets.invoke(decor, statusOnly);
+    position.invoke(decor, true);
+    assertEquals(compactExpandedHeight, host.getLayoutParams().height);
+    assertEquals(inset + breathing, expandedClock.getTranslationY(), .001f);
+
+    frame.layout(0, inset, width, height);
+    measureInsets.invoke(decor, statusOnly);
+    position.invoke(decor, true);
+    assertEquals(0, statusRow.getPaddingTop());
+    assertEquals(breathing, expandedClock.getTranslationY(), .001f);
+    assertEquals(compactExpandedHeight - inset, host.getLayoutParams().height);
 
     decor.expansion(0f);
     position.invoke(decor, true);
