@@ -36,6 +36,7 @@ import java.util.WeakHashMap;
 
 /** Uses the shade's own background renderer and the existing framework RemoteViews. */
 final class NotificationCards {
+  private final FluidCardClip fluidCards = new FluidCardClip();
   private static final String ROW = "com.android.systemui.statusbar.notification.row.";
   private final Map<View, Card> rows = new IdentityHashMap<>();
   private final Set<ViewGroup> rowParents = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -162,18 +163,19 @@ final class NotificationCards {
           Card nativeCard = rows.get(c.getThisObject());
           if (enabled && nativeCard != null && nativeCard.bg == c.getArg(1)
               && shadeRoot != null && nativeCard.row.getRootView() == shadeRoot) {
-            boolean tint = false;
+            boolean eligible = false;
             int width = 0, height = 0;
             try {
-              tint = canTintBackground(nativeCard.row);
-              if (tint) {
+              eligible = canTintBackground(nativeCard.row);
+              if (eligible && !nativeCard.keepNativeFill) {
                 width = (int)bgWidth.invoke(nativeCard.bg);
                 height = (int)bgHeight.invoke(nativeCard.bg);
               }
             } catch (ReflectiveOperationException | RuntimeException failure) {
               lastPaint = failure.toString();
             }
-            if (tint) {
+            if (eligible) {
+              if (nativeCard.keepNativeFill) return withBackgroundClip(nativeCard, c::proceed);
               tintedThisPull++;
               lastPaint = "native background tinted";
               int nativeWidth = width, nativeHeight = height;
@@ -235,6 +237,8 @@ final class NotificationCards {
         });
     ready = true;
     installOverlayBackgrounds(r);
+    try { fluidCards.install(r, view -> enabled && shadeRoot != null && view.getRootView() == shadeRoot); }
+    catch (ReflectiveOperationException absent) { /* Optional OOS custom-card renderer. */ }
   }
 
   private void installOverlayBackgrounds(PanelRuntime runtime) {
@@ -310,7 +314,7 @@ final class NotificationCards {
           View owner = enabled && shadeRoot != null ? overlayBackgrounds.ownerOf(current, shadeRoot) : null;
           Card card = owner == null ? null : rows.get(owner);
           boolean tint = false;
-          if (card != null) {
+          if (card != null && !card.keepNativeFill) {
             try { tint = canTintBackground(owner); }
             catch (ReflectiveOperationException | RuntimeException ignored) { /* Keep native draw. */ }
           }
@@ -562,6 +566,8 @@ final class NotificationCards {
     return surface(style, n.category, (n.flags & Notification.FLAG_GROUP_SUMMARY) != 0, colorized);
   }
 
+  boolean isReady() { return ready; }
+
   void setEnabled(boolean value) { enabled = value; }
 
   private int id(Resources res, String name) { return res.getIdentifier(name, "id", "android"); }
@@ -613,7 +619,7 @@ final class NotificationCards {
               if (content != null) fill = (int)contentTint.invoke(content);
             }
             if (Color.alpha(fill) == 0) { seenSurfaces.add(Surface.WAITING_FOR_TINT); styles++; continue; }
-          } else if (!surface.usesShadeBackground()) {
+          } else if (surface != Surface.CALL && !surface.usesShadeBackground()) {
             styles++; continue;
           }
           accepted++;
@@ -635,7 +641,7 @@ final class NotificationCards {
             row.invalidate();
           }
           c.present = true;
-          c.update(small, large, fill);
+          c.update(surface, small, large, fill);
           if (small != null || large != null) templates++;
           for (Inset inset : c.insets) if (inset.owned) modified++;
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -659,6 +665,7 @@ final class NotificationCards {
 
   private int discover(View view) {
     int found = 0;
+    fluidCards.invalidateIfRow(view);
     if (rowType.isInstance(view)) {
       attached.add(view);
       found++;
@@ -807,6 +814,7 @@ final class NotificationCards {
 
   void clear() {
     if (rows.isEmpty() && shadeRoot == null) return;
+    fluidCards.clear();
     for (Card c : rows.values()) remove(c);
     // OOS can reuse an overlay without another factory call on the next shade pull.
     // Keep only weak factory identity metadata; redraw with native colors while inactive.
@@ -844,7 +852,7 @@ final class NotificationCards {
     final int innerRadius, outerRadius, joinGap, alignmentTolerance;
     int joined, nextJoined, topClip, bottomClip;
     float stackTop, stackBottom, stackX;
-    boolean present;
+    boolean present, keepNativeFill;
     boolean shapePrepared, nativeCornersOwned, applyingNativeCorners;
     float originalTop, originalBottom, appliedTop, appliedBottom;
     Object nativeClipOwner;
@@ -891,6 +899,7 @@ final class NotificationCards {
     int dp(int dp) { return Math.round(dp * row.getResources().getDisplayMetrics().density); }
 
     boolean drawInRow(Canvas canvas) throws ReflectiveOperationException {
+      if (keepNativeFill) return false;
       boolean child = (boolean)groupChild.invoke(row);
       if (child && (bg.getVisibility() != View.VISIBLE || bg.getAlpha() <= 0f || drawableAlpha.getInt(bg) <= 0)) {
         lastPaint = "group background hidden";
@@ -1161,11 +1170,16 @@ final class NotificationCards {
       }
     }
 
-    void update(View contracted, View expanded, int fill) {
-      if (tint != fill) {
-        tint = fill;
-        base.setColor(fill);
-        nativeTint.setColor(fill);
+    void update(Surface surface, View contracted, View expanded, int fill) {
+      // CallStyle owns its colors and actions but its row shares the stack's corner geometry.
+      boolean nativeFill = surface == Surface.CALL;
+      if (keepNativeFill != nativeFill || (!nativeFill && tint != fill)) {
+        keepNativeFill = nativeFill;
+        if (!nativeFill) {
+          tint = fill;
+          base.setColor(fill);
+          nativeTint.setColor(fill);
+        }
         row.invalidate();
         overlayBackgrounds.invalidateOwner(row);
       }

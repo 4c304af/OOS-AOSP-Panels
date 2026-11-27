@@ -11,27 +11,25 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-/** A once-per-version reminder; restarting still requires an explicit button press. */
+/** Shows one reminder after an upgrade if the matching SystemUI receiver is unavailable. */
 public final class UpdateRestartPrompt extends DialogFragment {
   static final String TAG = "module-update-restart";
   static final String REQUEST_RESTART = "module-update-confirm-restart";
   static final String PREFERENCES = "update_restart_prompt";
   static final String SEEN_VERSION = "seen_version";
+  static final String SEEN_REVISION = "seen_system_ui_revision";
 
-  static void showIfNeeded(FragmentActivity activity) {
+  static void showIfNeeded(FragmentActivity activity, boolean compatibleHostRunning) {
     FragmentManager fragments = activity.getSupportFragmentManager();
     if (activity.isFinishing() || activity.isDestroyed() || fragments.isStateSaved()) return;
     SharedPreferences saved = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
     long seen = saved.getLong(SEEN_VERSION, -1);
     long current = BuildConfig.VERSION_CODE;
-    if (fragments.findFragmentByTag(TAG) != null) {
-      // Android can restore an unanswered dialog from before an APK update.
-      // Its recreated UI already describes this version; do not prompt again
-      // after the user answers it merely because the stored marker was older.
-      if (seen != current) saved.edit().putLong(SEEN_VERSION, current).apply();
-      return;
-    }
-    if (seen == current) return;
+    String revision = BuildConfig.SYSTEM_UI_REVISION;
+    String previous = saved.getString(SEEN_REVISION, null);
+    UpdateRestartPrompt restored = (UpdateRestartPrompt) fragments.findFragmentByTag(TAG);
+    if (restored != null && compatibleHostRunning) restored.dismiss();
+    if (seen == current && revision.equals(previous)) return;
     long installed = 0, updated = 0;
     if (seen < 0) {
       try {
@@ -43,18 +41,18 @@ public final class UpdateRestartPrompt extends DialogFragment {
         // baseline. A later version change can still be recognized reliably.
       }
     }
-    if (needsPrompt(seen, current, installed, updated)) {
+    if (restored == null && !compatibleHostRunning && (seen >= 0 || needsPrompt(previous, revision, installed, updated))) {
       // showNow lets us record this version only after the dialog was displayed.
       // FragmentManager restores the same unanswered prompt after recreation.
       new UpdateRestartPrompt().showNow(fragments, TAG);
     }
     // Record display, not successful root access: declining or failing a restart
     // must not produce another prompt. The home screen always offers manual retry.
-    saved.edit().putLong(SEEN_VERSION, current).apply();
+    saved.edit().putLong(SEEN_VERSION, current).putString(SEEN_REVISION, revision).apply();
   }
 
-  static boolean needsPrompt(long seen, long current, long installed, long updated) {
-    if (seen >= 0) return seen != current;
+  static boolean needsPrompt(String previous, String current, long installed, long updated) {
+    if (previous != null) return !previous.equals(current);
     // Existing releases have no marker. Different valid dates identify an APK
     // update even if the device clock moved backwards between installations.
     return installed > 0 && updated > 0 && installed != updated;

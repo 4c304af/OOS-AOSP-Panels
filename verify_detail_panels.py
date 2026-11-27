@@ -599,20 +599,6 @@ check(body(read("com.android.systemui.statusbar.LockscreenShadeQsTransitionContr
       "->setTransitionToFullShadeProgress(ZFF)V")
 check(body(read("com.android.systemui.qs.composefragment.QSFragmentCompose"), "setTransitionToFullShadeProgress"),
       "->setLockscreenToShadeProgress(F)V", "->setSquishinessFraction(F)V")
-osp = "com.oplus.systemui.statusbar.pipeline.mobile.ui.view."
-check(read(osp + "AbstractOplusStatusBarMobileViewBinder"), "->initViews(I)V")
-check(read(osp + "OplusStatusBarMobileViewBinder$Os17Binding"), " initViews(I)V", " getMobileTypeText()")
-check(read(osp + "AbstractOplusStatusBarMobileViewBinder$Binding"), " getMobileComboReal()Landroid/view/ViewGroup;")
-check((layouts / "oplus_status_bar_mobile_signal_group_big_fiveg.xml").read_text(),
-      'layout_constraintEnd_toStartOf="@id/mobile_type_text"', 'layout_constraintStart_toEndOf="@id/mobile_signal_data_outer"')
-stack = "com.android.systemui.statusbar.pipeline.shared.ui.composable."
-stacked = body(read(stack + "BigTypeStackedMobileIconLayoutStrategy"), "StackedMobileIcon")
-check(stacked, "->rowMeasurePolicy(", "->RoamingText-", "->SignalIcon$default-", "->NetworkTypeText-")
-assert stacked.index("->RoamingText-") < stacked.index("->SignalIcon$default-") < stacked.index("->NetworkTypeText-")
-check(read("androidx.compose.foundation.layout.RowMeasurePolicy"), "horizontalArrangement:", "verticalAlignment:", " copy(", "->arrange(")
-check(read("androidx.compose.ui.node.LayoutNode"), " getChildren$ui()", " getParent$ui()", " setMeasurePolicy(", " getMeasurePolicy(")
-check(read("androidx.compose.ui.node.NodeCoordinator"), " getLayoutNode()")
-check(read("androidx.compose.ui.layout.OnPlacedModifierKt"), " onPlaced(")
 manager = read("com.android.systemui.bluetooth.qsdialog.BluetoothDetailsContentManager")
 check(body(manager, "onSeeAllClicked"), "com.android.settings.PREVIOUSLY_CONNECTED_DEVICE", "->startSettingsActivity(")
 check(body(manager, "startSettingsActivity"), "->createActivityTransitionController(", "->postStartActivityDismissingKeyguard(")
@@ -630,13 +616,6 @@ check(body(row34, "updateBackgroundForGroupState"), "->isGroupExpansionChanging(
       "->mIsUserSwipingToExpandRow:Z", "->mShowNoBackground:Z")
 overlay34 = read("com.oplus.systemui.statusbar.notification.stack.OplusNotificationChildrenContainerOverlayExImpl")
 check(body(overlay34, "setOverlayVisibility"), "->isUserLocked:Z", "->isGroupExpandAnimating:Z", "const/4 v0, 0x4")
-dims34 = read(stack + "OplusStackedMobileIconDimensions")
-check(dims34, " copy-EiCO8V4(FFJJFFFFJFFF)", "contentStartPadding:F", "mobileTextMinWidth:F",
-      "networkTypeTextPrefixFontSize:J", "networkTypeTextSuffixFontSize:J", "networkTypeTextStartPadding:F",
-      "networkTypeTextEndPadding:F", "networkTypeTextBottomPadding:F", "mobileSignalIconStartPadding:F",
-      "roamingTextFontSize:J", "roamingTextStartPadding:F", "roamingTextEndPadding:F", "roamingContentBottomPadding:F")
-check(stacked, "->getMobileSignalIconStartPadding-", "->getNetworkTypeTextEndPadding-")
-check((layouts/"status_bar_mobile_signal_group_inner.xml").read_text(), 'android:layout_marginEnd="1.0sp"')
 icon_host = read("com.android.systemui.statusbar.phone.StatusIconContainer")
 check(body(icon_host, "updateStates"), "0x7f0a0e02", "->getChildAt(I)", "->isIconVisible()Z",
       "->isIconBlocked()Z", "->mIgnoredSlots:", "->getSlot()", "->visibleState:I", "add-int/lit8 v6, v5, -0x1")

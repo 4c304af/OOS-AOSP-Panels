@@ -10,6 +10,8 @@ import android.view.*;
 import android.widget.*;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -32,15 +34,29 @@ public final class MainActivity extends AppCompatActivity {
   private final Map<String, Boolean> values = new LinkedHashMap<>();
   private MaterialTextView stateTitle, stateDetail, reportView;
   private ScrollView scroll;
-  private boolean updating, connected, ready, imeReadable;
+  private boolean updating, connected, ready;
   private String report;
   private OnBackPressedCallback back;
   private MaterialButton restartButton;
+  private UpdateCheckDialog.Check updates;
   private boolean restarting;
+  private boolean receivedSystemUiStatus;
+  private Bundle availableFeatures = Bundle.EMPTY;
+  private final Set<String> pendingSettings = new HashSet<>();
   private PermissionDialogScope permissionScope;
   private final PermissionDialogScope.Observer permissionScopeObserver = this::updatePermissionScope;
   private MaterialTextView permissionScopeStatus;
   private MaterialButton permissionScopeRetry;
+  private BluetoothDetailsScope bluetoothDetailsScope;
+  private final BluetoothDetailsScope.Observer bluetoothScopeObserver = this::updateBluetoothScope;
+  private MaterialTextView bluetoothScopeStatus;
+  private MaterialButton bluetoothScopeRetry;
+  private AboutPhoneScope aboutPhoneScope;
+  private OptionalSettingsScope launcherScope;
+  private final OptionalSettingsScope.Observer launcherScopeObserver = this::updateLauncherScope;
+  private final AboutPhoneScope.Observer aboutScopeObserver = this::updateAboutScope;
+  private MaterialTextView aboutScopeStatus;
+  private MaterialButton aboutScopeRetry;
 
   @Override
   protected void attachBaseContext(Context base) {
@@ -52,6 +68,9 @@ public final class MainActivity extends AppCompatActivity {
     DynamicColors.applyToActivityIfAvailable(this);
     super.onCreate(state);
     permissionScope = ((PanelApplication)getApplication()).permissionScope();
+    bluetoothDetailsScope = ((PanelApplication)getApplication()).bluetoothDetailsScope();
+    aboutPhoneScope = ((PanelApplication)getApplication()).aboutPhoneScope();
+    launcherScope = ((PanelApplication)getApplication()).launcherScope();
     getSupportFragmentManager().setFragmentResultListener(
         UpdateRestartPrompt.REQUEST_RESTART, this, (key, result) -> restartSystemUi());
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -73,11 +92,15 @@ public final class MainActivity extends AppCompatActivity {
     getOnBackPressedDispatcher().addCallback(this, back);
     report = offlineReport();
     showHome();
+    updates = new ViewModelProvider(this).get(UpdateCheckDialog.Check.class);
+    updates.result.observe(this, ignored -> handler.post(this::checkForStartupUpdate));
   }
 
   @Override
   protected void onDestroy() {
     permissionScope.removeObserver(permissionScopeObserver);
+    bluetoothDetailsScope.removeObserver(bluetoothScopeObserver);
+    aboutPhoneScope.removeObserver(aboutScopeObserver);
     cancelGroupMotion();
     super.onDestroy();
   }
@@ -86,27 +109,59 @@ public final class MainActivity extends AppCompatActivity {
   public void onResume() {
     super.onResume();
     permissionScope.refresh();
+    bluetoothDetailsScope.refresh();
+    aboutPhoneScope.refresh();
+    launcherScope.refresh();
     request("status", null, false);
   }
 
   @Override protected void onPostResume() {
     super.onPostResume();
-    UpdateRestartPrompt.showIfNeeded(this);
+    if (receivedSystemUiStatus) UpdateRestartPrompt.showIfNeeded(this, connected);
+    handler.post(this::checkForStartupUpdate);
+  }
+
+  @Override public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    if (hasFocus) handler.post(this::checkForStartupUpdate);
+  }
+
+  private void checkForStartupUpdate() {
+    if (updates == null || !hasWindowFocus() || isFinishing() || isDestroyed()
+        || !getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)
+        || getSupportFragmentManager().isStateSaved()) return;
+    GitHubUpdates.Result result = updates.result.getValue();
+    if (result == null) {
+      updates.start();
+    } else if (result.status() == GitHubUpdates.Status.AVAILABLE && !updates.promptHandled
+        && getSupportFragmentManager().findFragmentByTag(UpdateCheckDialog.TAG) == null) {
+      new UpdateCheckDialog().showNow(getSupportFragmentManager(), UpdateCheckDialog.TAG);
+    }
   }
 
   @Override protected void onStart() {
     super.onStart();
     permissionScope.observe(permissionScopeObserver);
+    bluetoothDetailsScope.observe(bluetoothScopeObserver);
+    aboutPhoneScope.observe(aboutScopeObserver);
+    launcherScope.observe(launcherScopeObserver);
   }
 
   @Override protected void onStop() {
     permissionScope.removeObserver(permissionScopeObserver);
+    launcherScope.removeObserver(launcherScopeObserver);
+    bluetoothDetailsScope.removeObserver(bluetoothScopeObserver);
+    aboutPhoneScope.removeObserver(aboutScopeObserver);
     super.onStop();
   }
 
   private LinearLayout page() {
     permissionScopeStatus = null;
     permissionScopeRetry = null;
+    bluetoothScopeStatus = null;
+    bluetoothScopeRetry = null;
+    aboutScopeStatus = null;
+    aboutScopeRetry = null;
     LinearLayout content = column();
     content.setPadding(dp(20), dp(12), dp(20), dp(24));
     scroll = new ScrollView(this);
@@ -198,15 +253,22 @@ public final class MainActivity extends AppCompatActivity {
         R.drawable.ic_battery, com.google.android.material.R.attr.colorSecondaryContainer,
         com.google.android.material.R.attr.colorOnSecondaryContainer);
     feature(page, CombinedQsSettings.ANDROID_17_STATUS_BAR, getString(R.string.android_17_status_bar),
-        getString(R.string.android_17_status_bar_desc), R.drawable.ic_mobile_signal,
+        getString(R.string.android_17_status_bar_desc), R.drawable.ic_mobile_4_4_bar,
         com.google.android.material.R.attr.colorSecondaryContainer,
-        com.google.android.material.R.attr.colorOnSecondaryContainer);
-    feature(page, CombinedQsSettings.MOBILE_ORDER, getString(R.string.mobile_order), getString(R.string.mobile_order_desc),
-        R.drawable.ic_mobile_signal, com.google.android.material.R.attr.colorSecondaryContainer,
         com.google.android.material.R.attr.colorOnSecondaryContainer);
     feature(page, CombinedQsSettings.PERMISSION_DIALOG, getString(R.string.permission_dialogs), getString(R.string.permission_dialogs_desc),
         R.drawable.ic_privacy, com.google.android.material.R.attr.colorTertiaryContainer,
         com.google.android.material.R.attr.colorOnTertiaryContainer);
+    feature(page, CombinedQsSettings.BLUETOOTH_DETAILS, getString(R.string.bluetooth_details), getString(R.string.bluetooth_details_desc),
+        R.drawable.ic_bluetooth, com.google.android.material.R.attr.colorTertiaryContainer,
+        com.google.android.material.R.attr.colorOnTertiaryContainer);
+    feature(page, CombinedQsSettings.ABOUT_PHONE, getString(R.string.about_phone), getString(R.string.about_phone_desc),
+        R.drawable.ic_phone, com.google.android.material.R.attr.colorSecondaryContainer,
+        com.google.android.material.R.attr.colorOnSecondaryContainer);
+    feature(page, CombinedQsSettings.LAUNCHER_ICONS, getString(R.string.launcher_icons), getString(R.string.launcher_icons_desc),
+        R.drawable.ic_refresh, com.google.android.material.R.attr.colorSecondaryContainer,
+        com.google.android.material.R.attr.colorOnSecondaryContainer);
+    updateLauncherScope(launcherScope.state());
     oosGroup = column();
     page.addView(oosGroup, new LinearLayout.LayoutParams(-1,-2));
     groupHidden = CombinedQsSettings.enabled(this);
@@ -263,10 +325,25 @@ public final class MainActivity extends AppCompatActivity {
     hint.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
     margin(hint, 8, 8);
     page.addView(hint);
-    MaterialTextView version = label(getString(R.string.test_version, BuildConfig.VERSION_NAME.replace("-test", "")), 12, false);
+    MaterialTextView version = label(getString(R.string.installed_version, BuildConfig.VERSION_NAME), 12, false);
     version.setGravity(Gravity.CENTER);
     version.setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant));
     page.addView(version);
+    MaterialButton check = new MaterialButton(this, null,
+        com.google.android.material.R.attr.materialButtonTonalStyle);
+    check.setText(R.string.check_updates);
+    check.setOnClickListener(v -> {
+      updates.promptHandled = true;
+      updates.start();
+      new UpdateCheckDialog().showNow(getSupportFragmentManager(), UpdateCheckDialog.TAG);
+    });
+    margin(check, 12, 0);
+    page.addView(check);
+    MaterialButton license = new MaterialButton(this, null,
+        com.google.android.material.R.attr.materialButtonOutlinedStyle);
+    license.setText(R.string.license_title);
+    license.setOnClickListener(v -> new LicenseDialog().showNow(getSupportFragmentManager(), "license"));
+    page.addView(license);
     updateState();
   }
 
@@ -304,6 +381,9 @@ public final class MainActivity extends AppCompatActivity {
     margin(actions, 16, 0);
     boolean combined = "combined_qs".equals(key);
     boolean permissionDialog = CombinedQsSettings.PERMISSION_DIALOG.equals(key);
+    boolean bluetoothDetails = CombinedQsSettings.BLUETOOTH_DETAILS.equals(key);
+    boolean aboutPhone = CombinedQsSettings.ABOUT_PHONE.equals(key);
+    boolean launcherIcons = CombinedQsSettings.LAUNCHER_ICONS.equals(key);
     boolean persistent = combined || CombinedQsSettings.standalone(key);
     if (permissionDialog) {
       permissionScopeStatus = label("", 14, false);
@@ -316,9 +396,48 @@ public final class MainActivity extends AppCompatActivity {
       permissionScopeRetry.setText(R.string.permission_scope_retry);
       permissionScopeRetry.setTag("permission_scope_retry");
       permissionScopeRetry.setAllCaps(false);
-      permissionScopeRetry.setOnClickListener(v -> permissionScope.request());
-      actions.addView(permissionScopeRetry, new LinearLayout.LayoutParams(0, dp(48), 1));
+      actions.addView(permissionScopeRetry, new LinearLayout.LayoutParams(0, -2, 1));
       updatePermissionScope(permissionScope.state());
+    }
+    if (bluetoothDetails) {
+      bluetoothScopeStatus = label("", 14, false);
+      bluetoothScopeStatus.setTag("bluetooth_scope_status");
+      bluetoothScopeStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+      bluetoothScopeStatus.setPadding(0, dp(12), 0, 0);
+      body.addView(bluetoothScopeStatus);
+      bluetoothScopeRetry = new MaterialButton(this, null,
+          com.google.android.material.R.attr.materialButtonTonalStyle);
+      bluetoothScopeRetry.setText(R.string.bluetooth_scope_retry);
+      bluetoothScopeRetry.setTag("bluetooth_scope_retry");
+      bluetoothScopeRetry.setAllCaps(false);
+      actions.addView(bluetoothScopeRetry, new LinearLayout.LayoutParams(0, -2, 1));
+      updateBluetoothScope(bluetoothDetailsScope.state());
+    }
+    if (aboutPhone) {
+      aboutScopeStatus = label("", 14, false);
+      aboutScopeStatus.setTag("about_scope_status");
+      aboutScopeStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+      aboutScopeStatus.setPadding(0, dp(12), 0, 0);
+      body.addView(aboutScopeStatus);
+      aboutScopeRetry = new MaterialButton(this, null,
+          com.google.android.material.R.attr.materialButtonTonalStyle);
+      aboutScopeRetry.setText(R.string.about_scope_retry);
+      aboutScopeRetry.setTag("about_scope_retry");
+      aboutScopeRetry.setAllCaps(false);
+      actions.addView(aboutScopeRetry, new LinearLayout.LayoutParams(0, -2, 1));
+      updateAboutScope(aboutPhoneScope.state());
+    }
+    if (launcherIcons) {
+      MaterialTextView status = label("", 14, false);
+      status.setTag("launcher_scope_status");
+      status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+      status.setPadding(0, dp(12), 0, 0);
+      body.addView(status);
+      MaterialButton retry = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonTonalStyle);
+      retry.setText(R.string.permission_scope_retry);
+      retry.setAllCaps(false);
+      retry.setTag("launcher_scope_retry");
+      actions.addView(retry, new LinearLayout.LayoutParams(0, -2, 1));
     }
     if (persistent || "notification_cards".equals(key)) {
       actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -350,7 +469,7 @@ public final class MainActivity extends AppCompatActivity {
       actions.addView(test, new LinearLayout.LayoutParams(0, dp(48), 1));
     }
     MaterialSwitch sw = new MaterialSwitch(this);
-    sw.setText(getString(R.string.replace));
+    sw.setText(launcherIcons ? R.string.launcher_icons_enable : R.string.replace);
     sw.setTextSize(13);
     sw.setContentDescription(persistent ? title : getString(R.string.replace_accessible, title));
     sw.setPadding(dp(16), 0, 0, 0);
@@ -368,6 +487,9 @@ public final class MainActivity extends AppCompatActivity {
               Snackbar.make(scroll, R.string.combined_save_failed, Snackbar.LENGTH_LONG).show();
             } else if (combined) updateOosCards(checked, true);
             else if (permissionDialog) permissionScope.request();
+            else if (bluetoothDetails) bluetoothDetailsScope.request();
+            else if (aboutPhone) aboutPhoneScope.request();
+            else if (launcherIcons) launcherScope.request();
           } else {
             request("set", key, checked);
           }
@@ -378,7 +500,29 @@ public final class MainActivity extends AppCompatActivity {
     page.addView(card);
   }
 
-  private void updatePermissionScope(PermissionDialogScope.State state) {
+  private void updateLauncherScope(OptionalSettingsScope.State state) {
+    MaterialTextView status = scroll.findViewWithTag("launcher_scope_status");
+    if (status == null) return;
+    MaterialButton retry = scroll.findViewWithTag("launcher_scope_retry");
+    int text = switch (state) {
+      case OFF -> 0;
+      case CONNECTING -> R.string.permission_scope_connecting;
+      case REQUESTING -> R.string.launcher_scope_requesting;
+      case ADDED -> R.string.launcher_scope_ready;
+      case READY -> R.string.launcher_restarted;
+      case ROOT_PENDING -> R.string.root_pending;
+      case ROOT_DENIED -> R.string.root_denied;
+      case ROOT_TIMEOUT -> R.string.root_timeout;
+      case ROOT_FAILED -> R.string.launcher_restart_failed;
+      default -> R.string.launcher_scope_setup;
+    };
+    status.setVisibility(text == 0 ? View.GONE : View.VISIBLE);
+    if (text != 0) status.setText(text);
+    updateScopeButton(retry, state, R.string.permission_scope_retry, R.string.restart_launcher,
+        launcherScope::request, launcherScope::restart);
+  }
+
+  private void updatePermissionScope(OptionalSettingsScope.State state) {
     if (permissionScopeStatus == null || permissionScopeRetry == null) return;
     int message = switch (state) {
       case CONNECTING -> R.string.permission_scope_connecting;
@@ -396,14 +540,64 @@ public final class MainActivity extends AppCompatActivity {
     };
     permissionScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
     if (message != 0) permissionScopeStatus.setText(message);
-    boolean retry = state == PermissionDialogScope.State.MISSING
-        || state == PermissionDialogScope.State.ADDED
-        || state == PermissionDialogScope.State.FAILED
-        || state == PermissionDialogScope.State.UNAVAILABLE
-        || state == PermissionDialogScope.State.ROOT_DENIED
-        || state == PermissionDialogScope.State.ROOT_TIMEOUT
-        || state == PermissionDialogScope.State.ROOT_FAILED;
-    permissionScopeRetry.setVisibility(retry ? View.VISIBLE : View.GONE);
+    updateScopeButton(permissionScopeRetry, state, R.string.permission_scope_retry, R.string.restart_permission,
+        permissionScope::request, permissionScope::restart);
+  }
+
+  private void updateBluetoothScope(BluetoothDetailsScope.State state) {
+    if (bluetoothScopeStatus == null || bluetoothScopeRetry == null) return;
+    int message = switch (state) {
+      case CONNECTING -> R.string.bluetooth_scope_connecting;
+      case MISSING -> R.string.bluetooth_scope_missing;
+      case REQUESTING -> R.string.bluetooth_scope_requesting;
+      case ADDED -> R.string.bluetooth_scope_added;
+      case FAILED -> R.string.bluetooth_scope_failed;
+      case UNAVAILABLE -> R.string.bluetooth_scope_unavailable;
+      case ROOT_PENDING -> R.string.bluetooth_scope_root_pending;
+      case READY -> R.string.bluetooth_scope_ready;
+      case ROOT_DENIED -> R.string.bluetooth_scope_root_denied;
+      case ROOT_TIMEOUT -> R.string.bluetooth_scope_root_timeout;
+      case ROOT_FAILED -> R.string.bluetooth_scope_root_failed;
+      case OFF -> 0;
+    };
+    bluetoothScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+    if (message != 0) bluetoothScopeStatus.setText(message);
+    updateScopeButton(bluetoothScopeRetry, state, R.string.bluetooth_scope_retry, R.string.restart_bluetooth,
+        bluetoothDetailsScope::request, bluetoothDetailsScope::restart);
+  }
+
+  private void updateAboutScope(AboutPhoneScope.State state) {
+    if (aboutScopeStatus == null || aboutScopeRetry == null) return;
+    int message = switch (state) {
+      case CONNECTING -> R.string.about_scope_connecting;
+      case MISSING -> R.string.about_scope_missing;
+      case REQUESTING -> R.string.about_scope_requesting;
+      case ADDED -> R.string.about_scope_added;
+      case FAILED -> R.string.about_scope_failed;
+      case UNAVAILABLE -> R.string.about_scope_unavailable;
+      case ROOT_PENDING -> R.string.about_scope_root_pending;
+      case READY -> R.string.about_scope_ready;
+      case ROOT_DENIED -> R.string.about_scope_root_denied;
+      case ROOT_TIMEOUT -> R.string.about_scope_root_timeout;
+      case ROOT_FAILED -> R.string.about_scope_root_failed;
+      case OFF -> 0;
+    };
+    aboutScopeStatus.setVisibility(message == 0 ? View.GONE : View.VISIBLE);
+    if (message != 0) aboutScopeStatus.setText(message);
+    updateScopeButton(aboutScopeRetry, state, R.string.about_scope_retry, R.string.restart_about,
+        aboutPhoneScope::request, aboutPhoneScope::restart);
+  }
+
+  private void updateScopeButton(MaterialButton button, OptionalSettingsScope.State state, int setupLabel,
+      int restartLabel, Runnable setup, Runnable restart) {
+    boolean pending = state == OptionalSettingsScope.State.ROOT_PENDING;
+    boolean scoped = pending || state.canRestart();
+    boolean visible = scoped || state == OptionalSettingsScope.State.MISSING
+        || state == OptionalSettingsScope.State.FAILED || state == OptionalSettingsScope.State.UNAVAILABLE;
+    button.setText(scoped ? restartLabel : setupLabel);
+    button.setOnClickListener(v -> { if (scoped) restart.run(); else setup.run(); });
+    button.setEnabled(visible && !pending);
+    button.setVisibility(visible ? View.VISIBLE : View.GONE);
   }
 
   private void cancelGroupMotion() {
@@ -592,6 +786,18 @@ public final class MainActivity extends AppCompatActivity {
   }
 
   private void request(String command, String feature, boolean enabled) {
+    if (!"status".equals(command) && !connected) {
+      updateState();
+      showSetup();
+      return;
+    }
+    if ("set".equals(command)) {
+      if ((enabled && !availableFeatures.getBoolean(feature)) || !pendingSettings.add(feature)) {
+        updateState();
+        return;
+      }
+      updateState();
+    }
     Intent intent =
         new Intent(Protocol.ACTION)
             .setPackage(Protocol.TARGET)
@@ -607,19 +813,28 @@ public final class MainActivity extends AppCompatActivity {
           @Override
           public void onReceive(Context context, Intent ignored) {
             if (isFinishing() || isDestroyed()) return;
-            connected = getResultCode() != 0;
-            Bundle b = getResultExtras(false);
-            ready = connected && b != null && b.getBoolean("ready", false);
-            imeReadable = connected && b != null && b.getBoolean("imeReadable", false);
+            if ("set".equals(command)) pendingSettings.remove(feature);
+            Bundle state = getResultExtras(false);
+            connected = getResultCode() != 0 && acceptSystemUiState(state);
+            if (!connected) {
+              ready = false;
+              availableFeatures = Bundle.EMPTY;
+            }
+            if ("status".equals(command)) {
+              receivedSystemUiStatus = true;
+              if (getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) {
+                UpdateRestartPrompt.showIfNeeded(MainActivity.this, connected);
+              }
+            }
             if (connected && getResultData() != null) {
               report = getResultData();
               DiagnosticSnapshot.remember(context, report);
             } else report = offlineReport();
-            for (String key : Protocol.KEYS)
-              values.put(key, connected && b != null && b.getBoolean(key, false));
             updateState();
             if (!connected && !"status".equals(command)) showSetup();
-            else if (getResultCode() < 0)
+            else if (getResultCode() == Protocol.UNAVAILABLE)
+              Snackbar.make(scroll, R.string.feature_unavailable, Snackbar.LENGTH_LONG).show();
+            else if (getResultCode() < 0 && !"status".equals(command))
               Snackbar.make(scroll, "ime".equals(feature) ? getString(R.string.ime_update_failed) : getString(R.string.open_failed), Snackbar.LENGTH_LONG)
                   .setAction(getString(R.string.view_log), v -> showDiagnostics())
                   .show();
@@ -631,6 +846,14 @@ public final class MainActivity extends AppCompatActivity {
         null);
   }
 
+  private boolean acceptSystemUiState(Bundle state) {
+    if (!Protocol.hasLiveState(state)) return false;
+    ready = state.getBoolean("ready");
+    availableFeatures = state.getBundle(Protocol.AVAILABLE);
+    for (String key : Protocol.KEYS) values.put(key, state.getBoolean(key));
+    return true;
+  }
+
   private void updateState() {
     if (stateTitle != null) {
       stateTitle.setText(ready ? getString(R.string.connected) : connected ? getString(R.string.preparing) : getString(R.string.offline));
@@ -638,12 +861,19 @@ public final class MainActivity extends AppCompatActivity {
     }
     updateOosCards(CombinedQsSettings.enabled(this), false);
     updating = true;
-    for (Map.Entry<String, MaterialSwitch> e : switches.entrySet())
-      e.getValue().setChecked("combined_qs".equals(e.getKey()) ? CombinedQsSettings.enabled(this)
-          : CombinedQsSettings.standalone(e.getKey()) ? CombinedQsSettings.enabled(this, e.getKey())
-          : Boolean.TRUE.equals(values.get(e.getKey())));
-    MaterialSwitch ime = switches.get("ime");
-    if (ime != null) ime.setEnabled(imeReadable);
+    for (Map.Entry<String, MaterialSwitch> entry : switches.entrySet()) {
+      String key = entry.getKey();
+      MaterialSwitch toggle = entry.getValue();
+      if ("combined_qs".equals(key) || CombinedQsSettings.standalone(key)) {
+        toggle.setChecked(CombinedQsSettings.enabled(this, "combined_qs".equals(key) ? CombinedQsSettings.QUERY : key));
+      } else {
+        boolean stored = Boolean.TRUE.equals(values.get(key));
+        toggle.setChecked(stored);
+        // An unavailable hook can still be turned off if the host confirms it was enabled.
+        toggle.setEnabled(connected && !pendingSettings.contains(key)
+            && (availableFeatures.getBoolean(key) || (stored && !"ime".equals(key))));
+      }
+    }
     updating = false;
     if (reportView != null) reportView.setText(diagnosticReport());
   }

@@ -78,12 +78,15 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   int brightnessBand = -1;
   long lastTick;
   final int panelPaddingTop;
+  private final int panelVerticalPadding;
   private final int selectedRadius, unselectedRadius;
   private final ShadeLayout layout;
   private final PanelRuntime runtime;
   private final Context context;
   private final LinearLayout header;
   private final TextClock clock, date;
+  private Object clockGraph;
+  private final android.graphics.Rect clockBounds = new android.graphics.Rect();
   private final TextView battery;
   private final boolean aospStatusBar;
   record ButtonColors(int activeBackground, int activeIcon, int inactiveBackground, int inactiveIcon) {}
@@ -126,6 +129,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     aospStatusBar = runtime != null && runtime.statusBar.enabled(context);
     orientation = context.getResources().getConfiguration().orientation;
     panelPaddingTop = id("qs_panel_padding_top", "dimen");
+    panelVerticalPadding = id("overlay_qs_layout_vertical_padding", "dimen");
     selectedRadius = buttonRadius("common_tile_default_active_icon_corner_radius", 16);
     unselectedRadius = buttonRadius("common_tile_default_inactive_icon_corner_radius", 24);
     horizontal = id("qs_tile_margin_horizontal", "dimen");
@@ -140,12 +144,12 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         super.onConfigurationChanged(config);
         checkOrientation();
         if (aospStatusBar) refreshInsets = true;
-        if (statusIcons != null) statusIcons.updateChipSpacing();
+        if (statusIcons != null) statusIcons.updateSpacing();
       }
     };
     header.setGravity(Gravity.CENTER_VERTICAL);
-    clock = new TextClock(context);
-    expandedClock = new TextClock(context);
+    clock = headerClock(context);
+    expandedClock = headerClock(context);
     expandedClock.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
     expandedClock.setSingleLine(true);
     expandedClock.setIncludeFontPadding(false);
@@ -167,7 +171,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       text.setIncludeFontPadding(false);
     }
     date.setEllipsize(TextUtils.TruncateAt.END);
-    header.addView(clock);
+    header.addView(clock, new LinearLayout.LayoutParams(-2, -1));
     LinearLayout.LayoutParams fill = new LinearLayout.LayoutParams(0, -2, 1f);
     fill.setMarginStart(dp(10));
     fill.setMarginEnd(dp(8));
@@ -236,6 +240,27 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
   boolean compactExpandedLayout() { return aospStatusBar && !splitLayout(); }
 
   int gridHeaderHeight() { return sharedHeader != null && sharedHeader.placed() ? sharedHeader.reserve : headerHeight(); }
+
+  int sceneHeaderHeight(int nativeHeight, boolean expanded) {
+    boolean split = splitLayout();
+    if (expanded) return expandedGridHeaderHeight(split);
+    if (split) return gridHeaderHeight();
+    // Both scene endpoints must use the compact rows we actually draw. Keeping the
+    // ROM's taller QQS clock reservation makes empty space animate into expanded QS.
+    return compactExpandedLayout() ? headerHeight() : Math.max(nativeHeight, headerHeight());
+  }
+
+  int expandedGridHeaderHeight(boolean split) {
+    int header = split ? gridHeaderHeight() : expandedHeight();
+    // The expanded Column adds its own vertical padding after the header spacer. Credit
+    // part of that padding to the spacer without shifting the clock or crossing its bounds.
+    int padding = panelVerticalPadding == 0 ? 0 : context.getResources().getDimensionPixelSize(panelVerticalPadding);
+    return expandedSpacer(header, padding, dp(split ? 2 : 8));
+  }
+
+  static int expandedSpacer(int header, int panelPadding, int credit) {
+    return Math.max(0, header - Math.min(panelPadding, credit));
+  }
 
   private void restoreSharedHeader() {
     if (!sharedHeader.placed()) return;
@@ -357,11 +382,19 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     headerHost.setTranslationY(remainingTranslation(headerTranslation, inherited));
   }
 
-  private void positionHeader(boolean visible) {
-    header.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
-    float p = splitLayout() ? 0f : fraction;
+  void positionHeader(float lockProgress, float parentTranslation) {
+    header.setVisibility(View.VISIBLE);
+    boolean direct = Float.isFinite(lockProgress);
+    float p = direct ? 1f : splitLayout() ? 0f : fraction;
     int extra = expandedHeight() - headerHeight();
-    header.setTranslationY((extra - (aospStatusBar ? dp(4) : 0)) * p);
+    float opacity = LockscreenQsMotion.chromeAlpha(lockProgress);
+    if (runtime != null && clockGraph != runtime.graph) bindClockAction();
+    boolean clockVisible = open && opacity > 0f && !preview.visible();
+    clockTarget(clock, clockVisible && p < .5f);
+    clockTarget(expandedClock, clockVisible && p >= .5f);
+    if (!sharedHeader.placed()) header.setAlpha(opacity);
+    header.setTranslationY((extra - (aospStatusBar ? dp(4) : 0)) * p + (direct
+        ? LockscreenQsMotion.offset(lockProgress, dp(LockscreenQsMotion.HEADER_DP), parentTranslation) : 0f));
     clock.setAlpha(aospStatusBar ? Math.max(0f, 1f - 2f * p) : 1f - p);
     clock.setImportantForAccessibility(p < 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     float dateOpacity = p < .14f ? 1f - p / .14f : Math.max(0f, (p - .58f) / .42f);
@@ -381,9 +414,9 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       date.setTranslationX((header.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? 1 : -1)
           * (clock.getWidth() + dp(10)) * p);
     }
-    expandedClock.setVisibility(visible && p > 0f ? View.VISIBLE : View.INVISIBLE);
+    expandedClock.setVisibility(p > 0f ? View.VISIBLE : View.INVISIBLE);
     expandedClock.setImportantForAccessibility(p >= 0.5f ? View.IMPORTANT_FOR_ACCESSIBILITY_YES : View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-    expandedClock.setAlpha(p);
+    expandedClock.setAlpha(p * opacity);
     float scale = (1f + (clockScale - 1f) * p) / clockScale;
     expandedClock.setPivotX(frame.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? expandedClock.getWidth() : 0f);
     expandedClock.setPivotY(expandedClock.getHeight() / 2f);
@@ -395,7 +428,8 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       float expandedClockTop = expandedHeight() - statusRowHeight() - expandedClockHeight() - dp(8);
       clockTop = collapsedTop + (expandedClockTop - collapsedTop) * p;
     }
-    expandedClock.setTranslationY(clockTop);
+    expandedClock.setTranslationY(clockTop + (direct
+        ? LockscreenQsMotion.offset(lockProgress, dp(LockscreenQsMotion.CLOCK_DP), parentTranslation) : 0f));
   }
 
   void install() {
@@ -459,9 +493,47 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     try {
       statusIcons.bind(controller, foreground);
       headerBound = true;
-      statusIcons.attached(frame.isAttachedToWindow());
       statusIcons.active(listening);
     } catch (Throwable e) { layout.warn(e); }
+  }
+
+  private static TextClock headerClock(Context context) {
+    return new TextClock(context) {
+      @Override public CharSequence getAccessibilityClassName() {
+        return isClickable() ? android.widget.Button.class.getName() : super.getAccessibilityClassName();
+      }
+    };
+  }
+
+  private void bindClockAction() {
+    clockGraph = runtime.graph;
+    View.OnClickListener action = null;
+    if (clockGraph != null) {
+      try {
+        Object interactor = runtime.provider("clockInteractorProvider");
+        var launch = Reflect.method(interactor.getClass(), "launchClockActivity");
+        action = source -> {
+          if (!open || disposed || !source.isShown() || !source.isClickable() || preview.visible()) return;
+          try { Reflect.invoke(launch, interactor); }
+          catch (Throwable failure) { layout.warn(failure); }
+        };
+      } catch (Throwable failure) { layout.warn(failure); }
+    }
+    clock.setOnClickListener(action);
+    expandedClock.setOnClickListener(action);
+  }
+
+  private static void clockTarget(TextClock view, boolean active) {
+    boolean target = active && view.hasOnClickListeners();
+    if (view.isClickable() != target) view.setClickable(target);
+    if (view.isFocusable() != target) view.setFocusable(target);
+  }
+
+  boolean hitClock(float x, float y) {
+    TextClock target = expandedClock.isClickable() ? expandedClock : clock;
+    if (!open || !target.isClickable() || !target.isShown() || !target.getGlobalVisibleRect(clockBounds)) return false;
+    target.getRootView().getLocationInWindow(location);
+    return clockBounds.contains((int)Math.floor(x - location[0]), (int)Math.floor(y - location[1]));
   }
 
   boolean hitControl(float x, float y) {
@@ -492,10 +564,13 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     boolean changedLock = lockedShade != restricted;
     boolean opening = value && !open && !restricted;
     if (layout != null && value && !restricted && (!open || changedLock)) layout.cards.beginPull();
-    if (layout != null && opening && !changedLock) layout.notificationScrim.beginPull();
     lockedShade = restricted;
     open = value;
-    if (layout != null && (!value || restricted)) { layout.notificationScrim.endPull(); layout.cards.clear(); }
+    if (layout != null && (!value || restricted)) {
+      layout.touch.cancelGestures();
+      layout.notificationScrim.endPull();
+      layout.cards.clear();
+    }
     if (changedLock && restricted) {
       preview.reset();
       if (layout != null) layout.media.onShadeLocked();
@@ -506,7 +581,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     }
     if (opening && layout != null && !preview.visible() && frame.isAttachedToWindow()) {
       try {
-        if (!layout.isEditing()) layout.notificationScrim.update(frame, layout.shadeExpansion, fraction, layout.scrimTranslation);
+        if (!layout.isEditing()) layout.notificationScrim.update(frame, layout.shadeExpansion, fraction);
       } catch (Exception e) { layout.warn(e); }
     }
     if (frame.isAttachedToWindow()) listen(open);
@@ -530,7 +605,6 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         catch (RuntimeException e) { layout.warn(e); }
       }
     });
-    if (statusIcons != null) statusIcons.attached(true);
     listen(open);
   }
 
@@ -544,11 +618,11 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     preview.reset();
     if (frame.getViewTreeObserver().isAlive()) frame.getViewTreeObserver().removeOnPreDrawListener(this);
     listen(false);
-    if (statusIcons != null) statusIcons.attached(false);
   }
 
   void dispose() {
     disposed = true;
+    if (statusIcons != null) statusIcons.dispose();
     restoreSharedHeader();
     preview.reset();
     if (frame.isAttachedToWindow()) onViewDetachedFromWindow(frame);
@@ -746,7 +820,7 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
       splitChrome.showNativeHeader(frame, headerBound && showSplit);
       splitChrome.syncPrivacy(sharedHeader.placed() && statusIcons != null && statusIcons.chipVisible());
       if (lockedShade || editing || preview.visible()) layout.notificationScrim.hide();
-      else layout.notificationScrim.update(frame, layout.shadeExpansion, fraction, layout.scrimTranslation);
+      else layout.notificationScrim.update(frame, layout.shadeExpansion, fraction);
       boolean cardsEnabled = runtime.enabled("notification_cards");
       layout.cards.setEnabled(cardsEnabled);
       if (lockedShade || editing || preview.visible() || !cardsEnabled || (!layout.notificationScrim.isSplit() && fraction >= 1f)) layout.cards.clear();
@@ -770,7 +844,9 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
         lastSharedWidth = header.getWidth();
         lastSharedHeight = sharedHeader.height;
       }
-      positionHeader(true);
+      float lockProgress = lockedShade && !preview.visible() ? layout.directLockProgress() : Float.NaN;
+      float inherited = Float.isFinite(lockProgress) ? layout.contentTranslation() : 0f;
+      positionHeader(lockProgress, inherited);
       if (!lockedShade && !buttons.isEmpty() && resolver == null && listening
           && android.os.SystemClock.uptimeMillis() >= retryBrightnessAt) bindBrightness();
     } catch (Exception e) {

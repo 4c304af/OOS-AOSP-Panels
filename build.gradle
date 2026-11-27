@@ -1,5 +1,17 @@
 plugins { id 'com.android.application' version '8.10.1' }
 
+// Include the same license distributed with the corresponding source in each APK.
+tasks.withType(Sync).configureEach {
+    if (name ==~ /process.+JavaRes/) {
+        from('LICENSE') { into 'META-INF/dev.oos.nativepanels' }
+    }
+}
+
+apply from: 'gradle/system-ui-revision.gradle'
+tasks.matching { it.name ==~ /process.+Resources/ }.configureEach {
+    inputs.file('gradle/system-ui-ids.txt')
+}
+
 android {
     namespace 'dev.oos.nativepanels'
     compileSdk 36
@@ -7,9 +19,11 @@ android {
         applicationId 'dev.oos.nativepanels'
         minSdk 30
         targetSdk 35
-        versionCode 66
-        versionName '0.6.49-android17-statusbar.4'
+        versionCode 97
+        versionName '0.6.84-android17-statusbar.1'
+        buildConfigField 'String', 'SYSTEM_UI_REVISION', '"' + systemUiRevision + '"'
     }
+    androidResources { additionalParameters += ['--stable-ids', file('gradle/system-ui-ids.txt').absolutePath] }
     buildFeatures { buildConfig true }
     sourceSets {
         main {
@@ -41,7 +55,8 @@ android {
         unitTests.includeAndroidResources = true
         unitTests.all {
             def proxy = System.getenv('OOS_MAVEN_PROXY')
-            if (proxy) systemProperty 'robolectric.dependency.repo.url', "${proxy}/maven"
+            systemProperty 'robolectric.dependency.repo.url', proxy ? "${proxy}/maven" : 'https://maven-central.storage-download.googleapis.com/maven2'
+            testLogging.exceptionFormat = 'full'
             systemProperty 'robolectric.graphicsMode', 'NATIVE'
         }
     }
@@ -52,7 +67,7 @@ dependencies {
     // Scope requests use the stable service 101 protocol, also supported by API 102 frameworks.
     implementation 'io.github.libxposed:service:101.0.0'
     implementation 'com.google.android.material:material:1.14.0'
-    testRuntimeOnly 'io.github.libxposed:api:102.0.0'
+    testImplementation 'io.github.libxposed:api:102.0.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.15.1'
 }

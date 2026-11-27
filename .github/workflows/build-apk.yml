@@ -111,15 +111,40 @@ jobs:
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "OOS-AOSP-Panels-release-$BUILD_ATTEMPT" --dir dist
-          flags=()
-          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
           # Optional user-facing notes live in the release commit, never in README.
           notes_file="$RUNNER_TEMP/release-notes.md"
           gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" \
             --jq '.commit.message | split("\n\nRelease notes:\n") | if length > 1 then .[1:] | join("\n\nRelease notes:\n") else "" end' > "$notes_file"
           printf '\nBuilt from %s. [GitHub Actions run](%s/%s/actions/runs/%s).\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes_file"
+          # 0.6.79 was approved for direct release. Every other version starts in prerelease.
+          flags=(--prerelease)
+          if [[ "$VERSION" == 0.6.79 ]]; then flags=(--latest); fi
           gh release create "v$VERSION" "dist/OOS-AOSP-Panels-$VERSION.apk" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "OOS AOSP Panels $VERSION" "${flags[@]}" \
             --notes-file "$notes_file"
+
+      - name: Mark 0.6.78 as a prerelease once its replacement is available
+        if: needs.build.outputs.version == '0.6.79'
+        run: |
+          set -euo pipefail
+          gh release view v0.6.79 --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets \
+            --jq '(.isDraft == false and .isPrerelease == false) and any(.assets[]; .name == "OOS-AOSP-Panels-0.6.79.apk" and .size > 0)' | grep -Fxq true
+          gh release edit v0.6.78 --repo "$GITHUB_REPOSITORY" --prerelease
+
+      - name: Promote the tested 0.6.84 APK
+        if: needs.build.outputs.version == '0.6.84' && github.event_name == 'push' && github.event.before == '5c8fdeb0bcbd673e1f17eae049cdb44ce258e4ae'
+        run: |
+          set -euo pipefail
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v0.6.84")
+          jq -e '.draft == false and any(.assets[]; .id == 797091052 and .name == "OOS-AOSP-Panels-0.6.84.apk" and
+            .digest == "sha256:2326fb527df93bad9742720f42e6313036a4b90eb15f16440df33b4f38fdb1ec")' <<< "$release" >/dev/null
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          if [[ "$latest" == v0.6.83 ]]; then
+            gh release edit v0.6.84 --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+          fi
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          if [[ "$latest" == v0.6.84 ]]; then
+            gh release edit v0.6.83 --repo "$GITHUB_REPOSITORY" --prerelease
+          fi

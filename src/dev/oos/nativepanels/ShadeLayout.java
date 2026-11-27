@@ -20,11 +20,13 @@ final class ShadeLayout {
   final NotificationStackScrim notificationScrim = new NotificationStackScrim();
   final CombinedTouch touch;
   final CombinedMedia media;
+  final CombinedBrightness brightness;
   private WeakReference<Object> headerController = new WeakReference<>(null);
   private WeakReference<Fragment> selected = new WeakReference<>(null);
   private WeakReference<ShadeDecor> decor = new WeakReference<>(null);
   private WeakReference<Object> model = new WeakReference<>(null);
   private Method consume, editing, viewMotion, viewAlpha;
+  private LockscreenQsMotion lockMotion;
   private final ThreadLocal<ShadeDecor> brightnessBox = new ThreadLocal<>();
   private Object localView;
   private final ThreadLocal<ShadeDecor> headerBox = new ThreadLocal<>();
@@ -33,6 +35,7 @@ final class ShadeLayout {
   private Object headerSize;
   private boolean open, lockedShade;
   private boolean measuringExpanded;
+  private boolean measuringStackedGrid;
   private final java.util.Map<Object, WeakReference<ShadeDecor>> compactScrollBodies = new java.util.WeakHashMap<>();
   private final java.util.Set<Class<?>> compactScrollClasses = new java.util.HashSet<>();
   private final ThreadLocal<CompactScroller> compactScroller = new ThreadLocal<>();
@@ -43,10 +46,18 @@ final class ShadeLayout {
     CompactScroller(ShadeDecor owner) { this.owner = owner; }
   }
   private float qsExpansion, headerTranslation;
-  float shadeExpansion, scrimTranslation;
+  float shadeExpansion;
   private String warning = "";
 
-  ShadeLayout(PanelRuntime runtime) { this.runtime = runtime; touch = new CombinedTouch(runtime); media = new CombinedMedia(runtime, this); }
+  ShadeLayout(PanelRuntime runtime) {
+    this.runtime = runtime;
+    touch = new CombinedTouch(runtime);
+    media = new CombinedMedia(runtime, this);
+    brightness = new CombinedBrightness(() -> {
+      ShadeDecor owner = decor.get();
+      return owner == null ? null : owner.slider;
+    });
+  }
   void select(Fragment fragment) { selected = new WeakReference<>(fragment); }
 
   void clear() {
@@ -65,7 +76,7 @@ final class ShadeLayout {
     notificationScrim.release();
     shadeExpansion = 0;
     qsExpansion = 0;
-    headerTranslation = scrimTranslation = 0;
+    headerTranslation = 0;
     warning = "";
     compactScrollBodies.clear();
   }
@@ -125,7 +136,25 @@ final class ShadeLayout {
       try {
         viewMotion = fragmentModel.getMethod("getViewTranslationY");
         viewAlpha = fragmentModel.getMethod("getViewAlpha");
-      } catch (NoSuchMethodException missing) { warn(missing); }
+        Method fraction = fragmentModel.getMethod("getPanelExpansionFraction");
+        runtime.module.hook(viewAlpha).setId("native-panels:qs-pull-alpha").intercept(chain -> {
+          float original = (Float)chain.proceed();
+          Object vm = chain.getThisObject();
+          if (vm != model.get()) return original;
+          float progress = (Float)fraction.invoke(vm);
+          if (lockedShade) return CombinedQsExpansion.lockedProgress(original, progress);
+          if (!Float.isFinite(progress) || progress >= 1f) return original;
+          return switch (runtime.combinedQs.expansion.pane()) {
+            case PORTRAIT -> progress > 0f ? 1f : 0f; // The notification edge reveals the tiles.
+            case SPLIT -> ShadePullMotion.splitContentAlpha(progress);
+            default -> original;
+          };
+        });
+        runtime.module.deoptimize(runtime.type(fragment.getName() + "$$ExternalSyntheticLambda5")
+            .getDeclaredMethod("invoke", Object.class));
+        // The same Compose lambda reads the grid offset and the root alpha.
+        lockMotion = new LockscreenQsMotion(runtime, this, fragmentModel);
+      } catch (ReflectiveOperationException | RuntimeException missing) { warn(missing); }
       try {
         headerSize = runtime.type("androidx.compose.runtime.SnapshotStateKt").getMethod("mutableStateOf$default", Object.class).invoke(null, 0L);
         readHeaderSize = runtime.type("androidx.compose.runtime.State").getMethod("getValue");
@@ -138,30 +167,27 @@ final class ShadeLayout {
         if (owner != null && chain.getThisObject() == model.get()) {
           // Subscribe both QQS and QS padding to measured inset changes after rotation.
           if (headerSize != null && readHeaderSize != null) readHeaderSize.invoke(headerSize);
-          if (owner.splitLayout()) return owner.gridHeaderHeight();
+          return owner.sceneHeaderHeight(original, measuringExpanded);
         }
-        if (owner == null || chain.getThisObject() != model.get()) return original;
-        int measured = measuringExpanded ? owner.expandedHeight() : owner.headerHeight();
-        return owner.compactExpandedLayout() && measuringExpanded ? measured : Math.max(original, measured);
+        return original;
       });
       Method expansion = fragment.getDeclaredMethod("setQsExpansion", float.class, float.class, float.class, float.class);
       runtime.module.hook(expansion).setId("native-panels:slider-expansion").intercept(chain -> {
         if (chain.getThisObject() == selected.get()) {
           float original = (Float) chain.getArg(0);
           float shade = (Float)chain.getArg(1);
+          float panel = runtime.combinedQs.expansion.panelFraction(shade);
           float scene = runtime.combinedQs.expansion.gridFraction(original, shade);
           qsExpansion = runtime.settingsLaunch.sceneDuringExit(scene, shade);
           ShadeDecor current = decor.get();
           float hostTranslation = (Float) chain.getArg(2);
-          scrimTranslation = Float.isFinite(hostTranslation) ? hostTranslation : 0f;
-          headerTranslation = runtime.settingsLaunch.translationDuringExit(
-              runtime.combinedQs.expansion.gridTranslation(hostTranslation));
+          headerTranslation = runtime.settingsLaunch.translationDuringExit(hostTranslation);
           if (current != null) {
             current.expansion(qsExpansion);
             current.headerTranslation(headerTranslation);
           }
-          if (original != qsExpansion || headerTranslation != hostTranslation)
-            return chain.proceed(new Object[]{qsExpansion, chain.getArg(1), headerTranslation, chain.getArg(3)});
+          if (original != qsExpansion || headerTranslation != hostTranslation || panel != shade)
+            return chain.proceed(new Object[]{qsExpansion, panel, headerTranslation, chain.getArg(3)});
         }
         return chain.proceed();
       });
@@ -178,8 +204,9 @@ final class ShadeLayout {
         if (owner != null) {
           int id = (Integer) chain.getArg(0);
           if (measuringExpanded && id != 0 && id == owner.panelPaddingTop && ownsComposition(owner, chain.getArg(1))) {
-            float original = (Float) chain.proceed();
-            return owner.compactExpandedLayout() ? Math.min(original, 4f) : expandedPadding(original);
+            // QuickSettingsElement already reserves the live header and the panel's own
+            // top padding. This is the separate ROM spacer above the brightness row.
+            return 0f;
           }
           if (owner.isTileGap(id) && ownsComposition(owner, chain.getArg(1))) return 8f;
         }
@@ -188,6 +215,7 @@ final class ShadeLayout {
       try { installHeaderSlot(fragment, composer); } catch (Exception e) { warn(e); }
       try { installCompactFooter(fragment, composer); } catch (Exception e) { warn(e); }
       try { media.install(composer); } catch (Exception e) { warn(e); }
+      try { installStackedMediaSpacing(composer); } catch (ReflectiveOperationException e) { warn(e); }
       installSlider(composer);
     } catch (Exception e) { warn(e); }
   }
@@ -280,6 +308,32 @@ final class ShadeLayout {
     compactScrollBodies.put(body, new WeakReference<>(owner));
   }
 
+  private void installStackedMediaSpacing(Class<?> composer) throws ReflectiveOperationException {
+    Class<?> content = runtime.type("kotlin.jvm.functions.Function2");
+    Method grid = runtime.type("com.android.systemui.qs.composefragment.QSFragmentComposeKt")
+        .getDeclaredMethod("QuickSettingsLayout", content, content, content, boolean.class, composer, int.class);
+    Method verticalPadding = runtime.type("com.android.systemui.qs.ui.composable.QuickSettingsShade$Dimensions")
+        .getDeclaredMethod("getVerticalPadding", composer, int.class);
+    Method hasPlayer = runtime.type("com.android.systemui.qs.composefragment.viewmodel.QSFragmentComposeViewModel")
+        .getDeclaredMethod("getQsMediaVisible");
+    runtime.module.hook(grid).setId("native-panels:expanded-stacked-grid").intercept(chain -> {
+      boolean previous = measuringStackedGrid;
+      measuringStackedGrid = !(Boolean)chain.getArg(3);
+      try { return chain.proceed(); } finally { measuringStackedGrid = previous; }
+    });
+    runtime.module.hook(verticalPadding).setId("native-panels:stacked-media-spacing").intercept(chain -> {
+      float spacing = (Float)chain.proceed();
+      if (!measuringStackedGrid) return spacing;
+      // Only the first read creates the column arrangement. Children use their own spacing.
+      measuringStackedGrid = false;
+      ShadeDecor owner = compositionOwner(chain.getArg(0));
+      Object vm = model.get();
+      return owner != null && !owner.splitLayout() && vm != null && (Boolean)hasPlayer.invoke(vm)
+          ? Math.min(spacing, 8f) : spacing;
+    });
+    runtime.module.deoptimize(grid);
+  }
+
   private void installHeaderSlot(Class<?> fragment, Class<?> composer) throws Exception {
     String scene = "com.android.compose.animation.scene.";
     Class<?> modifier = runtime.type("androidx.compose.ui.Modifier");
@@ -344,6 +398,12 @@ final class ShadeLayout {
     Class<?> modifier = runtime.type("androidx.compose.ui.Modifier");
     String prefix = "com.android.systemui.brightness.ui.compose.";
     Class<?> sliderModel = runtime.type("com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel");
+    try {
+      brightness.install(runtime);
+    } catch (ReflectiveOperationException | RuntimeException unavailable) {
+      brightness.failed(unavailable);
+      warn(unavailable);
+    }
     Method container = runtime.type(prefix + "BrightnessSliderKt").getDeclaredMethod("BrightnessSliderContainer",
         sliderModel, modifier,
         runtime.type(prefix + "ContainerColors"), runtime.type(prefix + "BrightnessSliderDimensions"), composer, int.class, int.class);
@@ -358,8 +418,21 @@ final class ShadeLayout {
         owner.preview.attachState(makeState, readState, writeState);
       }
       brightnessBox.set(owner);
-      try { return chain.proceed(); }
-      finally {
+      try {
+        if (owner != null && lockMotion != null) {
+          Object[] args = chain.getArgs().toArray();
+          int defaults = (Integer)args[6];
+          try { args[1] = lockMotion.sliderModifier((defaults & 2) != 0 ? null : args[1]); }
+          catch (ReflectiveOperationException unavailable) {
+            warn(unavailable);
+            return chain.proceed();
+          }
+          args[5] = (Integer)args[5] & ~0x70;
+          args[6] = defaults & ~2;
+          return chain.proceed(args);
+        }
+        return chain.proceed();
+      } finally {
         if (previous == null) brightnessBox.remove();
         else brightnessBox.set(previous);
       }
@@ -447,7 +520,7 @@ final class ShadeLayout {
     Object trackPadding = runtime.type("androidx.compose.foundation.layout.PaddingKt")
         .getMethod("padding-qDBjuR0", modifier, float.class, float.class, float.class, float.class)
         .invoke(null, base, 0f, 0f, 56f, 0f);
-    Method then = modifier.getMethod("then", modifier);
+    BrightnessTrackPadding buttonSpace = new BrightnessTrackPadding(modifier, one, base, trackPadding);
     Method androidView = runtime.type("androidx.compose.ui.viewinterop.AndroidView_androidKt")
         .getMethod("AndroidView", one, modifier, one, composer, int.class, int.class);
     TileColorReader tileColors = tileColorReader(composer);
@@ -462,24 +535,20 @@ final class ShadeLayout {
       ShadeDecor owner = brightnessBox.get();
       if (owner == null || !owner.hasAutomaticBrightness) return chain.proceed();
       Object[] args = chain.getArgs().toArray();
-      if (owner.buttonFactory == null) {
-        owner.buttonFactory = Proxy.newProxyInstance(one.getClassLoader(), new Class<?>[]{one}, (proxy, m, values) -> {
-          return switch (m.getName()) {
-            case "invoke" -> owner.createBrightnessButton((android.content.Context) values[0]);
-            case "equals" -> proxy == values[0];
-            case "hashCode" -> System.identityHashCode(proxy);
-            case "toString" -> "QS automatic brightness";
-            default -> throw new UnsupportedOperationException(m.getName());
-          };
-        });
-      }
-      int defaults = (Integer) args[17];
-      args[9] = then.invoke(trackPadding, (defaults & (1 << 9)) != 0 ? base : args[9]);
-      args[15] = (Integer) args[15] & ~0x70000000;
-      args[17] = defaults & ~(1 << 9);
-      // Scope the insertion to the immediate container-to-track call.
+      boolean insertButton = buttonSpace.reserve(args);
       brightnessBox.remove();
       try {
+        if (!insertButton) return chain.proceed();
+        if (owner.buttonFactory == null) {
+          owner.buttonFactory = Proxy.newProxyInstance(one.getClassLoader(), new Class<?>[]{one}, (proxy, m, values) ->
+              switch (m.getName()) {
+                case "invoke" -> owner.createBrightnessButton((android.content.Context) values[0]);
+                case "equals" -> proxy == values[0];
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "toString" -> "QS automatic brightness";
+                default -> throw new UnsupportedOperationException(m.getName());
+              });
+        }
         Object result = chain.proceed(args);
         // Read the same composition locals as the QS grid. AndroidView's update
         // runs for both an existing button and one created by a restarted scene.
@@ -523,8 +592,8 @@ final class ShadeLayout {
 
   void resetGeometry(ShadeDecor owner, boolean rotated) {
     if (owner != decor.get()) return;
-    headerTranslation = scrimTranslation = 0f;
-    touch.cancelSplitGesture();
+    headerTranslation = 0f;
+    touch.cancelGestures();
     if (rotated) {
       if (runtime.settingsLaunch.isTracking(owner.frame)) runtime.settingsLaunch.interruptForTouch();
       // ScrollState belongs to the fragment and can survive a configuration change.
@@ -544,12 +613,24 @@ final class ShadeLayout {
     return vm == null || viewMotion == null ? Float.NaN : (Float) viewMotion.invoke(vm);
   }
 
+  Object selectedModel() { return model.get(); }
+
+  float directLockProgress() throws ReflectiveOperationException {
+    return lockMotion == null ? Float.NaN : lockMotion.progress(model.get());
+  }
+
   float qsAlpha() throws Exception {
     Object vm = model.get();
     return vm == null || viewAlpha == null ? 0f : (Float)viewAlpha.invoke(vm);
   }
 
   boolean isSelected(Object fragment) { return fragment != null && fragment == selected.get(); }
+
+  boolean acceptsPullMotion(Object fragment) throws ReflectiveOperationException {
+    ShadeDecor owner = decor.get();
+    return isSelected(fragment) && owner != null && editing != null && owner.frame.isAttachedToWindow()
+        && !owner.preview.visible() && !runtime.settingsLaunch.isTracking(owner.frame) && !isEditing();
+  }
 
   ShadeDecor compositionOwner(Object composer) {
     ShadeDecor owner = decor.get();
@@ -575,6 +656,8 @@ final class ShadeLayout {
 
   ShadeDecor touchOwner() { return active() ? decor.get() : null; }
 
+  ShadeDecor visibleDecor() { return gridVisible() ? decor.get() : null; }
+
   void bindHeader(Fragment fragment, Object controller) {
     if (selected.get() != fragment || controller == null) return;
     if (headerController.get() != controller) headerController = new WeakReference<>(controller);
@@ -584,14 +667,14 @@ final class ShadeLayout {
 
   String report() {
     ShadeDecor current = decor.get();
-    return current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion
-        + " compactWeight/scroll=" + compactWeights + "/" + compactScrollers + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning);
+    return (current == null ? "QS layout: no frame" : current.report() + " qsExpansion=" + qsExpansion
+        + " compactWeight/scroll=" + compactWeights + "/" + compactScrollers + "\n" + touch.report() + "\n" + media.report() + "\nQS notification scrim: " + notificationScrim.report() + "\nQS notification cards: " + cards.report() + "\n" + runtime.settingsLaunch.report() + (warning.isEmpty() ? "" : "\nQS layout warning: " + warning))
+        + "\n" + brightness.report();
   }
 
-  boolean isEditing() throws Exception {
+  boolean isEditing() throws ReflectiveOperationException {
     Fragment fragment = selected.get();
     return fragment == null || (Boolean) editing.invoke(fragment);
   }
-  static float expandedPadding(float originalDp) { return Math.min(originalDp, 8f); }
 
 }

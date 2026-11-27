@@ -34,6 +34,29 @@ final class CombinedTileClicks {
 
   enum Action { SYSTEM, TOGGLE_OPLUS, DETAIL_OPLUS, PANEL }
 
+  static boolean recorderSpec(String spec) {
+    if (spec == null) return false;
+    return switch (spec) {
+      case "screenrecord",
+          "custom(com.oplus.screenrecorder/.floatwindow.services.QuickPanelService)",
+          "custom(com.oplus.screenrecorder/com.oplus.screenrecorder.floatwindow.services.QuickPanelService)",
+          "custom(com.coloros.screenrecorder/.services.QuickPanelService)",
+          "custom(com.coloros.screenrecorder/com.coloros.screenrecorder.services.QuickPanelService)" -> true;
+      default -> false;
+    };
+  }
+
+  static boolean recorderBackend(String spec, String tileClass) {
+    return recorderSpec(spec) && ("screenrecord".equals(spec)
+        ? "com.oplus.systemui.qs.tiles.ScreenRecorderTile".equals(tileClass)
+        : "com.android.systemui.qs.external.CustomTile".equals(tileClass));
+  }
+
+  static Action recorderAction(boolean icon, boolean dualTarget, int state, boolean disabledByPolicy) {
+    if (!dualTarget || state == 0 || disabledByPolicy) return Action.SYSTEM;
+    return icon ? Action.TOGGLE_OPLUS : Action.DETAIL_OPLUS;
+  }
+
   static Action action(boolean icon, String tileClass, int state, boolean disabledByPolicy, boolean keyguard) {
     if (state == 0 || disabledByPolicy) return Action.SYSTEM;
     if (!keyguard && !icon) return Action.PANEL;
@@ -83,6 +106,7 @@ final class CombinedTileClicks {
     Method current = vm.getMethod("getCurrentState");
     Field enabledState = state.getField("state");
     Field byPolicy = state.getField("disabledByPolicy");
+    Field dualTarget = Reflect.optionalField(state, "dualTarget");
     String grid = "com.android.systemui.qs.panels.ui.compose.infinitegrid.TileKt";
     for (int suffix : new int[]{1, 18, 19}) {
       try { r.module.deoptimize(r.type(grid + "$$ExternalSyntheticLambda" + suffix).getDeclaredMethod("invoke")); }
@@ -97,11 +121,17 @@ final class CombinedTileClicks {
         Object backend = Reflect.get(tileVm, "tile");
         String backendName = backend.getClass().getName();
         Object tileSpec = Reflect.call(tileVm, "getSpec");
-        String feature = panelFor((String) Reflect.call(tileSpec, "getSpec"), backendName);
-        if (!available(r, feature)) return chain.proceed();
+        String name = (String) Reflect.call(tileSpec, "getSpec");
+        boolean recorder = recorderBackend(name, backendName);
+        String feature = panelFor(name, backendName);
+        if (!recorder && !available(r, feature)) return chain.proceed();
         Object snapshot = current.invoke(tileVm);
         boolean keyguard = !layout.active() || r.locked();
-        Action route = action(icon, backendName, enabledState.getInt(snapshot), byPolicy.getBoolean(snapshot), keyguard);
+        int status = enabledState.getInt(snapshot);
+        boolean restricted = byPolicy.getBoolean(snapshot);
+        Action route = recorder
+            ? recorderAction(icon, dualTarget != null && dualTarget.getBoolean(snapshot), status, restricted)
+            : action(icon, backendName, status, restricted, keyguard);
         if (route == Action.SYSTEM) return chain.proceed();
         Object from = icon ? null : chain.getArg(0);
         if (from == null) from = Reflect.call(tileVm, "getExpandable");
@@ -114,7 +144,10 @@ final class CombinedTileClicks {
           else if (feature.equals("flashlight")) r.flashlight.showFromGrid(from);
           else if (feature.equals("internet")) r.showInternet(from);
           else r.showBluetooth(from);
-        } catch (Throwable e) { r.failure(feature, e); }
+        } catch (Throwable e) {
+          if (recorder) layout.warn(e);
+          else r.failure(feature, e);
+        }
         return null;
       });
     }
@@ -127,8 +160,12 @@ final class CombinedTileClicks {
     r.module.hook(map).setId("native-panels:combined-tile-targets").intercept(chain -> {
       Object original = chain.getArg(0);
       if (!r.combinedQs.layout.hasCombinedGrid() || secondary.getBoolean(original)) return chain.proceed();
-      String feature = panelFor((String) spec.get(original), "");
-      if (!available(r, feature)) return chain.proceed();
+      String name = (String) spec.get(original);
+      if (recorderSpec(name)) {
+        // OOS reports the recorder menu through dualTarget. Compose reads handlesSecondaryClick.
+        if (recorderAction(false, dualTarget != null && dualTarget.getBoolean(original),
+            enabledState.getInt(original), byPolicy.getBoolean(original)) == Action.SYSTEM) return chain.proceed();
+      } else if (!available(r, panelFor(name, ""))) return chain.proceed();
       // SystemUI reuses its State for other listeners. Change only the Compose mapper's input.
       Object forGrid = copy.invoke(original);
       secondary.setBoolean(forGrid, true);

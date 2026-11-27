@@ -15,16 +15,12 @@ import java.util.Set;
 public final class ModuleEntry extends XposedModule {
   private final Set<String> installed = new HashSet<>();
   private PanelRuntime runtime;
-  private Boolean mobileOrder;
 
   // PackageReady supplies the final AppComponentFactory class loader before Application creation.
   @Override
   public void onPackageReady(XposedModuleInterface.PackageReadyParam p) {
-    if (PermissionDialogHook.PACKAGE.equals(p.getPackageName())) {
-      installPart("permission-dialogs", () -> new PermissionDialogHook(this, p.getClassLoader()).install());
-      return;
-    }
     if (Protocol.TARGET.equals(p.getPackageName())) install(p.getClassLoader());
+    else OptionalHostHooks.install(this, p.getPackageName(), p.getClassLoader());
   }
 
   private synchronized void install(ClassLoader loader) {
@@ -35,7 +31,6 @@ public final class ModuleEntry extends XposedModule {
     installPart("application", () -> {
       Method start = android.app.Instrumentation.class.getMethod("callApplicationOnCreate", Application.class);
       hook(start).setId("native-panels:application").intercept(c -> {
-        installMobileOrder(c.getArg(0));
         Object result = c.proceed();
         attachSystemUi(c.getArg(0));
         return result;
@@ -44,7 +39,6 @@ public final class ModuleEntry extends XposedModule {
     installPart("oplus-application", () -> {
       Method start = Reflect.method(runtime.type("com.android.systemui.application.impl.SystemUIApplicationImpl"), "onCreate");
       hook(start).setId("native-panels:oplus-application").intercept(c -> {
-        installMobileOrder(c.getThisObject());
         Object result = c.proceed();
         attachSystemUi(c.getThisObject());
         return result;
@@ -53,12 +47,15 @@ public final class ModuleEntry extends XposedModule {
     BluetoothSettingsNavigation bluetoothNavigation = new BluetoothSettingsNavigation(runtime);
     installPart("bluetooth-settings", bluetoothNavigation::install);
     installPart("bluetooth-tile-settings", bluetoothNavigation::installTile);
+    installPart("bluetooth-dialog-icons", () -> BluetoothDialogIcons.install(runtime));
     installPart("home-battery", runtime.homeBattery::install);
     installPart("android-17-status-clock", runtime.statusBar::installClock);
     installPart("android-17-status-wifi", runtime.statusBar::installWifi);
     installPart("android-17-status-mobile", runtime.statusBar::installMobile);
     installPart("combined-qs", () -> runtime.combinedQs.install());
     installPart("combined-tile-clicks", () -> CombinedTileClicks.install(runtime));
+    installPart("recorder-panel-motion", () -> new RecorderPanelMotion().install(runtime));
+    installPart("recorder-tile-dialog", () -> new RecorderTileDialog(runtime).install());
     installPart("calculator-vendor", () -> CalculatorLaunch.install(runtime, true));
     installPart("calculator-service", () -> CalculatorLaunch.install(runtime, false));
     installPart("combined-disclosure", () -> CombinedFooter.installDisclosure(runtime));
@@ -220,24 +217,8 @@ public final class ModuleEntry extends XposedModule {
         });
   }
 
-  private void installMobileOrder(Object candidate) {
-    if (!(candidate instanceof Application app) || !Protocol.TARGET.equals(app.getPackageName()) || mobileOrder != null) return;
-    try {
-      String key = CombinedQsSettings.MOBILE_ORDER;
-      android.os.Bundle saved = app.getContentResolver().call(CombinedQsSettings.URI, key, null, null);
-      if (saved == null || !saved.containsKey(key)) return;
-      mobileOrder = saved.getBoolean(key);
-      if (!mobileOrder) return;
-      installPart("mobile-type-view", () -> MobileTypeOrder.installView(runtime));
-      installPart("mobile-type-stacked", () -> new StackedMobileTypeOrder(runtime).install(app.getResources()));
-    } catch (RuntimeException error) {
-      log(Log.WARN, "OOSNativePanels", "Could not read mobile signal order", error);
-    }
-  }
-
   private void attachSystemUi(Object candidate) {
     if (candidate instanceof Application app && Protocol.TARGET.equals(app.getPackageName())) {
-      installMobileOrder(app);
       runtime.attach(app);
     }
   }
@@ -246,7 +227,7 @@ public final class ModuleEntry extends XposedModule {
     void run() throws Throwable;
   }
 
-  private void installPart(String key, Install action) {
+  void installPart(String key, Install action) {
     if (installed.contains(key)) return;
     try {
       action.run();

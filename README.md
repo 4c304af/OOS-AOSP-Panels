@@ -2,7 +2,9 @@
 
 這個 LSPosed 模組為 ColorOS 17 國際版的系統介面加入 AOSP 快速設定、通知面板與狀態列元件。
 
-[上游版本（GitHub Releases）](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
+[本分支測試版（GitHub Releases）](https://github.com/4c304af/OOS-AOSP-Panels/releases) · [上游版本](https://github.com/onichan0923/OOS-AOSP-Panels/releases)
+
+目前基於上游 **0.6.84**，保留其頁首時鐘鬧鐘入口、通知動畫、亮度、電池與無障礙修正，再加入下述 Android 17 狀態欄功能。內建更新檢查使用本分支的發佈頻道。
 
 ## Android 17 原生狀態欄
 
@@ -20,12 +22,15 @@
 
 展開頁首的尺寸參考 [AOSP Android 17.0.0_r1 的 ShadeHeader](https://github.com/aosp-mirror/platform_frameworks_base/blob/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/ShadeHeader.kt#L285)。
 
+## 授權
+
+本專案的原創程式碼採用 [GNU General Public License 第 3 版](LICENSE)（`GPL-3.0-only`）。散布修改版 APK 時，須依 GPLv3 向收件者提供該版本的完整對應原始碼。官方 APK 的對應原始碼可在同一個 GitHub Release 的「Source code」下載。第三方元件與素材依各自的授權條款使用。
+
 ## 參考專案
 
 | 專案 | 在本模組中的用途 |
 | --- | --- |
 | Android Open Source Project（AOSP） | 橫屏快速設定與通知雙欄的佈局參考 Android 17 的 [ShadeScene 與 ShadeHeader](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-17.0.0_r1/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/)。勿擾面板的開啟流程參考 [ModesDialogDelegate](https://android.googlesource.com/platform/frameworks/base/+/5db0901c639ecae8d034c2b12b67ae26e749aed1/packages/SystemUI/src/com/android/systemui/statusbar/policy/ui/dialog/ModesDialogDelegate.kt)，行動網路切換時的 Wi-Fi 自動連線行為則對照 [WifiManager](https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/android17-release/framework/java/android/net/wifi/WifiManager.java)。 |
-| [ONextBox](https://github.com/MiToverG422/ONextBox) | 狀態列網路制式圖示的相容性參考。啟用 ONextBox 圖示包時，本模組保留它提供的制式圖案，並調整圖案與訊號條之間的留白。 |
 | [Material Symbols](https://github.com/google/material-design-icons/tree/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7) | 模組啟動圖示取自 Google 的 Material Symbols Rounded 實心字形，採用 [Apache License 2.0](resources/META-INF/material-symbols/LICENSE)。 |
 | [Material Components for Android](https://github.com/material-components/material-components-android/releases/tag/1.14.0) | 模組設定介面使用 1.14.0 的 Material 3 Expressive 主題、卡片、按鈕與開關。 |
 | [libxposed API](https://github.com/libxposed/api/releases/tag/102.0.0) | 模組使用 Modern Xposed API 102 在 ColorOS 17 國際版的 SystemUI 中接入原生面板。 |

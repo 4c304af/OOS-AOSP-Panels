@@ -24,7 +24,6 @@ final class NotificationStackScrim {
   private final float[] radii = new float[8];
   private Class<?> panelType, windowType;
   private View layer, drawHost;
-  private final PullOrigin motion = new PullOrigin();
   private Field lastClip, screenCorner, minHeight;
   private Method surfaceColor;
   private Object controller;
@@ -137,7 +136,6 @@ final class NotificationStackScrim {
   private void drawSurface(Canvas canvas) {
     if (!visible) return;
     canvas.drawPath(shape, paint);
-    motion.presented(shadeFraction);
     draws++;
     if (!tracking) {
       rawFirst = rawMin = rawMax = rawTop;
@@ -153,31 +151,10 @@ final class NotificationStackScrim {
     lastDrawAlpha = paint.getAlpha();
   }
 
-  // Several expansion samples may arrive before a display list is actually recorded.
-  // Commit the origin only after a positive-alpha surface draw, then map the remaining travel.
-  static final class PullOrigin {
-    private boolean pending;
-    private float origin;
-    void begin() { origin = 0f; pending = true; }
-    void reset() { origin = 0f; pending = false; }
-    float progress(float shade) {
-      if (!Float.isFinite(shade) || shade <= 0f) return 0f;
-      if (shade >= 1f) return 1f;
-      return pending ? 0f : Math.max(0f, (shade - origin) / (1f - origin));
-    }
-    void presented(float shade) {
-      if (pending || shade >= 1f) origin = shade > 0f && shade < 1f ? shade : 0f;
-      pending = false;
-    }
-  }
-
-  void beginPull() { motion.begin(); }
-
   void bind(Object qs, boolean split) {
     if (qs != controller || split != splitShade) {
       hide();
       stack = null;
-      motion.reset();
     }
     controller = qs;
     splitShade = split;
@@ -223,11 +200,11 @@ final class NotificationStackScrim {
     } else problem = "waiting for column layout";
   }
 
-  void update(View frame, float shade, float qs, float headerTranslation) {
+  void update(View frame, float shade, float qs) {
     if (!installed || controller == null) return;
     effectiveSplit = splitFor(frame);
     int alpha = surfaceAlpha(shade, qs, effectiveSplit);
-    if (alpha == 0) { hide(); return; }
+    if (alpha == 0 && !(effectiveSplit && shade > 0f)) { hide(); return; }
     try {
       if (effectiveSplit) {
         if (visible) hide();
@@ -268,11 +245,12 @@ final class NotificationStackScrim {
         if (headerHeight <= 0 || host.getWidth() <= 0 || root.getHeight() <= 0) {
           hide(); problem = "waiting for shade geometry"; return;
         }
-        l = 0; r = host.getWidth(); b = root.getHeight() - hostPos[1]; destination = headerHeight;
+        l = 0; r = host.getWidth(); b = root.getHeight() - hostPos[1]; destination = Math.round(ShadePullMotion.revealEdge(headerHeight, headerHeight, shade));
       }
       rawTop = destination;
       shadeFraction = shade;
-      paintedTop = revealTop(destination, headerHeight, motion.progress(shade), headerTranslation);
+      // The controller used this same window edge to clip the tiles and notification rows.
+      paintedTop = destination;
       int t = paintedTop - hostPos[1];
       if (t >= b || l >= r) { hide(); return; }
       Context context = panel.getContext();
@@ -296,17 +274,6 @@ final class NotificationStackScrim {
       }
       problem = "";
     } catch (ReflectiveOperationException | RuntimeException e) { hide(); problem = e.toString(); }
-  }
-
-  // All positions here are relative to the shade window, before converting to panel-local Y.
-  // A ROM may pin the clip to QQS height, or already move it. Never pass an earlier native edge.
-  static int revealTop(int nativeTop, int headerHeight, float shade, float translation) {
-    if (!Float.isFinite(shade) || shade <= 0f || nativeTop <= 0) return 0;
-    float travel = Math.min(1f, shade);
-    if (headerHeight > 0 && Float.isFinite(translation))
-      travel = Math.min(travel, Math.max(0f, 1f + translation / headerHeight));
-    int extent = Math.max(nativeTop, headerHeight);
-    return Math.min(nativeTop, Math.round(extent * travel));
   }
 
   private static float topRadius(WindowInsets insets, boolean left, float fallback) {
@@ -334,9 +301,7 @@ final class NotificationStackScrim {
   }
 
   static int surfaceAlpha(float shade, float qs, boolean split) {
-    // In split QS stays expanded alongside the list. Use the visible portrait
-    // notification surface at the same shade pull, including its opacity.
-    return Math.round(128f * fraction(shade, split ? 0f : qs));
+    return Math.round(128f * (split ? ShadePullMotion.splitContentAlpha(shade) : fraction(shade, qs)));
   }
 
   static float fraction(float shade, float qs) {
@@ -357,7 +322,6 @@ final class NotificationStackScrim {
 
   void endPull() {
     hide();
-    motion.reset();
     tracking = false;
   }
 

@@ -10,12 +10,22 @@ record RuntimeReply(int code, String report, Bundle values, RuntimeException fai
     try {
       return action.get();
     } catch (RuntimeException error) {
-      Bundle values = new Bundle();
-      values.putBoolean("ready", false);
-      values.putBoolean("imeReadable", false);
-      return new RuntimeReply(-1, "AOSP Panels " + BuildConfig.VERSION_NAME
-          + "\nSystemUI response unavailable: " + error.getClass().getSimpleName(), values, error);
+      return new RuntimeReply(-1, fallback(error), Bundle.EMPTY, error);
     }
+  }
+
+  static RuntimeReply withReport(int code, Bundle values, Supplier<String> report) {
+    try {
+      return new RuntimeReply(code, report.get(), values, null);
+    } catch (RuntimeException error) {
+      // Formatting is optional. The command has already run and its settings were read back.
+      return new RuntimeReply(code, fallback(error), values, error);
+    }
+  }
+
+  private static String fallback(RuntimeException error) {
+    return "AOSP Panels " + BuildConfig.VERSION_NAME + "\nSystemUI diagnostics unavailable: "
+        + error.getClass().getSimpleName();
   }
 
   static String text(Resources resources, int id, Object... arguments) {

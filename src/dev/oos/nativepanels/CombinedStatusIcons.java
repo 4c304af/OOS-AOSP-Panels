@@ -5,16 +5,19 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import java.lang.reflect.Method;
 
 /** An independent QS icon group, using the same dependencies as the ROM header. */
-final class CombinedStatusIcons {
+final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
   private final PanelRuntime r;
   private final LinearLayout row;
   private final View percentFallback;
   private ViewGroup icons;
   private ShadeBattery battery;
+  private View batteryHost;
   private View chip;
   private Object manager, controller, privacy;
+  private Method getSlot, addGroup, removeGroup;
   private boolean registered, listening;
   private String lastMobile = "unseen";
   private android.content.ContentResolver settings;
@@ -34,21 +37,23 @@ final class CombinedStatusIcons {
     Context context = row.getContext();
     Class<?> containerType = r.type("com.android.systemui.statusbar.phone.StatusIconContainer");
     Class<?> location = r.type("com.android.systemui.statusbar.phone.StatusBarLocation");
+    getSlot = r.type("com.android.systemui.statusbar.StatusIconDisplayable").getMethod("getSlot");
     Object factory = Reflect.get(header, "tintedIconManagerFactory");
-    controller = Reflect.get(header, "statusBarIconController");
+    Object iconController = Reflect.get(header, "statusBarIconController");
     icons = (ViewGroup) containerType.getConstructor(Context.class).newInstance(context);
     Reflect.method(containerType, "setShouldRestrictIcons", boolean.class).invoke(icons, false);
+    // The enclosing shade animates the whole row. An interrupted OOS hide animation can
+    // otherwise send a hidden state to the mobile binding after it has become visible.
+    Reflect.method(containerType, "setEnableAnimation", boolean.class).invoke(icons, false);
     Object group = Reflect.method(factory.getClass(), "create", ViewGroup.class, location)
         .invoke(factory, icons, location.getField("QS").get(null));
     
     row.addView(icons, row.indexOfChild(percentFallback), params(24));
     manager = group;
     try {
-      battery = r.statusBar.enabled(context) ? new ShadeBattery(r, context, tint, .80f)
-          : new ShadeBattery(r, context, tint);
-      LinearLayout.LayoutParams batteryParams = params(-2);
-      batteryParams.setMarginStart(Math.round(2f * row.getResources().getDisplayMetrics().density));
-      row.addView(battery.view, row.indexOfChild(percentFallback), batteryParams);
+      battery = new ShadeBattery(r, context, tint);
+      batteryHost = QsBatteryView.forHeader(r, header, battery.view);
+      row.addView(batteryHost, row.indexOfChild(percentFallback), params(-2));
       percentFallback.setVisibility(View.GONE);
     } catch (Throwable e) { battery = null; r.combinedQs.layout.warn(e); }
     try {
@@ -59,16 +64,32 @@ final class CombinedStatusIcons {
       privacy = Reflect.method(pf.getClass(), "createHeaderPrivacyIconsController", type, containerType)
           .invoke(pf, chip, icons);
       row.addView(chip, params(28));
-      updateChipSpacing();
     } catch (Throwable e) { privacy = null; r.combinedQs.layout.warn(e); }
+    updateSpacing();
     tint(tint);
+    observeGroup(iconController, r.type("com.android.systemui.statusbar.phone.ui.IconManager"));
+  }
+
+  void observeGroup(Object iconController, Class<?> managerType) throws ReflectiveOperationException {
+    controller = iconController;
+    addGroup = Reflect.method(controller.getClass(), "addIconGroup", managerType);
+    removeGroup = Reflect.method(controller.getClass(), "removeIconGroup", managerType);
+    icons.addOnAttachStateChangeListener(this);
+    if (icons.isAttachedToWindow()) attached(true);
   }
 
   // A GONE child and its margins take no space. Keep the gap on the chip's
   // logical start so it follows both kinds of indicator and RTL layouts.
   boolean chipVisible() { return listening && chip != null && chip.isShown(); }
 
-  void updateChipSpacing() {
+  void updateSpacing() {
+    if (batteryHost != null && batteryHost.getLayoutParams() instanceof LinearLayout.LayoutParams batteryParams) {
+      int gap = Math.round(2f * row.getResources().getDisplayMetrics().density);
+      if (gap != batteryParams.getMarginStart()) {
+        batteryParams.setMarginStart(gap);
+        batteryHost.setLayoutParams(batteryParams);
+      }
+    }
     if (chip == null || !(chip.getLayoutParams() instanceof LinearLayout.LayoutParams p)) return;
     var res = row.getResources();
     int gapId = res.getIdentifier("qs_privacy_to_header_view_margin", "dimen", Protocol.TARGET);
@@ -104,13 +125,20 @@ final class CombinedStatusIcons {
     return android.graphics.Color.luminance(foreground) < 0.5f ? 1f : 0f;
   }
 
-  // Keep one subscription-backed group for the attached fragment, across repeated shade pulls.
-  void attached(boolean attached) {
+  // AndroidView can replace or reparent the header while the outer QS fragment stays attached.
+  @Override public void onViewAttachedToWindow(View v) { attached(true); }
+  @Override public void onViewDetachedFromWindow(View v) { attached(false); }
+
+  void dispose() {
+    if (icons != null) icons.removeOnAttachStateChangeListener(this);
+    attached(false);
+  }
+
+  private void attached(boolean attached) {
     if (!attached) releasePercent();
     if (manager == null || attached == registered) return;
     try {
-      Reflect.method(controller.getClass(), attached ? "addIconGroup" : "removeIconGroup",
-          r.type("com.android.systemui.statusbar.phone.ui.IconManager")).invoke(controller, manager);
+      (attached ? addGroup : removeGroup).invoke(controller, manager);
       registered = attached;
       if (attached) bindUser();
     } catch (Throwable e) { r.combinedQs.layout.warn(e); }
@@ -152,7 +180,8 @@ final class CombinedStatusIcons {
     if (manager == null) return;
     try {
       if (active) {
-        attached(true);
+        if (batteryHost instanceof QsBatteryView fitted) fitted.refreshSlot();
+        if (icons.isAttachedToWindow()) attached(true);
         icons.requestLayout();
         icons.postOnAnimation(this::sample);
       }
@@ -174,9 +203,12 @@ final class CombinedStatusIcons {
     StringBuilder mobile = new StringBuilder();
     for (int i = 0; i < icons.getChildCount(); i++) {
       View v = icons.getChildAt(i);
-      if (!v.getClass().getSimpleName().contains("Mobile")) continue;
+      String slot;
+      try { slot = (String)getSlot.invoke(v); }
+      catch (ReflectiveOperationException | IllegalArgumentException e) { continue; }
+      if (!HomeBatteryHook.mobileSlot(slot)) continue;
       if (mobile.length() > 0) mobile.append(',');
-      mobile.append(v.getVisibility()).append('/').append(v.getWidth()).append('/').append(v.getAlpha());
+      mobile.append(slot).append('=').append(v.getVisibility()).append('/').append(v.getWidth()).append('/').append(v.getAlpha());
     }
     lastMobile = mobile.length() == 0 ? "no holder" : mobile.toString();
   }

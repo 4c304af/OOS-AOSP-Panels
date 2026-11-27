@@ -16,28 +16,38 @@ final class RootRestart {
   }
 
   private static final String PROBE = "printf '\\nOOSNP_UID=%s\\n' \"$(/system/bin/id -u)\"\n";
-  private static final String RESTART =
-      "if ! /system/bin/pidof com.android.systemui >/dev/null; then\n"
+  private static final String BLUETOOTH_SETTINGS_RESTART =
+      "oosnp_running=0\n"
+          + "oosnp_failed=0\n"
+          + "for oosnp_target in com.android.settings com.oplus.wirelesssettings; do\n"
+          + "  if /system/bin/pidof \"$oosnp_target\" >/dev/null; then\n"
+          + "    oosnp_running=1\n"
+          + "    /system/bin/killall -TERM \"$oosnp_target\" || oosnp_failed=1\n"
+          + "  fi\n"
+          + "done\n"
+          + "if [ \"$oosnp_failed\" = 1 ]; then\n"
+          + "  echo OOSNP_RESTART=FAILED\n"
+          + "  exit 12\n"
+          + "fi\n"
+          + "if [ \"$oosnp_running\" = 0 ]; then\n"
           + "  echo OOSNP_RESTART=NOT_RUNNING\n"
           + "  exit 11\n"
           + "fi\n"
-          + "if /system/bin/killall -TERM com.android.systemui; then\n"
+          + "echo OOSNP_RESTART=OK\n"
+          + "exit 0\n";
+
+  private static String singleHostCommand(String processName) {
+    return "if ! /system/bin/pidof " + processName + " >/dev/null; then\n"
+          + "  echo OOSNP_RESTART=NOT_RUNNING\n"
+          + "  exit 11\n"
+          + "fi\n"
+          + "if /system/bin/killall -TERM " + processName + "; then\n"
           + "  echo OOSNP_RESTART=OK\n"
           + "  exit 0\n"
           + "fi\n"
           + "echo OOSNP_RESTART=FAILED\n"
           + "exit 12\n";
-  private static final String PERMISSION_RESTART =
-      "if ! /system/bin/pidof com.google.android.permissioncontroller >/dev/null; then\n"
-          + "  echo OOSNP_RESTART=NOT_RUNNING\n"
-          + "  exit 11\n"
-          + "fi\n"
-          + "if /system/bin/killall -TERM com.google.android.permissioncontroller; then\n"
-          + "  echo OOSNP_RESTART=OK\n"
-          + "  exit 0\n"
-          + "fi\n"
-          + "echo OOSNP_RESTART=FAILED\n"
-          + "exit 12\n";
+  }
 
   private RootRestart() {}
 
@@ -52,13 +62,46 @@ final class RootRestart {
         new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
   }
 
+  /** Reloads only the two Settings hosts; the Bluetooth service and connections keep running. */
+  static Result restartBluetoothSettings(BooleanSupplier allowed) throws IOException {
+    if (!allowed.getAsBoolean()) return Result.FAILED;
+    return runBluetoothSettings(
+        new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
+  static Result runBluetoothSettings(Process process, long authTimeoutMs,
+      long commandTimeoutMs, BooleanSupplier allowed) {
+    return run(process, authTimeoutMs, commandTimeoutMs, BLUETOOTH_SETTINGS_RESTART, allowed);
+  }
+
+  /** Reloads the Settings host without restarting other optional feature hosts. */
+  static Result restartSettings(BooleanSupplier allowed) throws IOException {
+    if (!allowed.getAsBoolean()) return Result.FAILED;
+    return runSettings(
+        new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
+  static Result runSettings(Process process, long authTimeoutMs,
+      long commandTimeoutMs, BooleanSupplier allowed) {
+    return run(process, authTimeoutMs, commandTimeoutMs, singleHostCommand(AboutPhoneSettings.SETTINGS_PACKAGE), allowed);
+  }
+
+  static Result restartLauncher(BooleanSupplier allowed) throws IOException {
+    if (!allowed.getAsBoolean()) return Result.FAILED;
+    return runLauncher(new ProcessBuilder("su").redirectErrorStream(true).start(), 60_000, 10_000, allowed);
+  }
+
+  static Result runLauncher(Process process, long authTimeoutMs, long commandTimeoutMs, BooleanSupplier allowed) {
+    return run(process, authTimeoutMs, commandTimeoutMs, singleHostCommand(LauncherIconRefresh.PACKAGE), allowed);
+  }
+
   static Result run(Process process, long authTimeoutMs, long commandTimeoutMs) {
-    return run(process, authTimeoutMs, commandTimeoutMs, RESTART, () -> true);
+    return run(process, authTimeoutMs, commandTimeoutMs, singleHostCommand(Protocol.TARGET), () -> true);
   }
 
   static Result runPermissionController(Process process, long authTimeoutMs,
       long commandTimeoutMs, BooleanSupplier allowed) {
-    return run(process, authTimeoutMs, commandTimeoutMs, PERMISSION_RESTART, allowed);
+    return run(process, authTimeoutMs, commandTimeoutMs, singleHostCommand(PermissionDialogHook.PACKAGE), allowed);
   }
 
   private static Result run(Process process, long authTimeoutMs, long commandTimeoutMs,

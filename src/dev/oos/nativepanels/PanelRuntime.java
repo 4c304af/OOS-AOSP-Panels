@@ -40,7 +40,6 @@ final class PanelRuntime {
   Object internetManager;
   private Object mediaManager;
   private volatile Resources strings;
-  private Context moduleContext;
   private Event last = new Event(R.string.not_tested);
   private final ArrayDeque<Event> history = new ArrayDeque<>();
   private boolean registered;
@@ -83,7 +82,7 @@ final class PanelRuntime {
     app = a;
     try {
       // R.string IDs belong to the module APK. SystemUI has a different resource table.
-      moduleContext = a.createPackageContext("dev.oos.nativepanels", 0);
+      Context moduleContext = a.createPackageContext("dev.oos.nativepanels", 0);
       strings = PanelLanguages.withLocales(moduleContext, PanelLanguages.resolve(
           LocaleList.getEmptyLocaleList(), a.getResources().getConfiguration().getLocales())).getResources();
     } catch (android.content.pm.PackageManager.NameNotFoundException e) {
@@ -124,63 +123,9 @@ final class PanelRuntime {
         new BroadcastReceiver() {
           @Override
           public void onReceive(Context context, Intent intent) {
-            RuntimeReply reply = RuntimeReply.capture(() -> {
-              int code;
-              try {
-                String locales = intent.getStringExtra("locales");
-                if (moduleContext != null && locales != null && !locales.isEmpty()) {
-                  strings = PanelLanguages.withLocales(moduleContext, PanelLanguages.resolve(
-                      LocaleList.forLanguageTags(locales), a.getResources().getConfiguration().getLocales())).getResources();
-                }
-                String command = intent.getStringExtra("command");
-                String feature = intent.getStringExtra("feature");
-                if ("set".equals(command)) {
-                  if (!Protocol.isFeature(feature)) throw new IllegalArgumentException(text(R.string.unknown_panel));
-                  boolean enable = intent.getBooleanExtra("enabled", false);
-                  if ("ime".equals(feature)) {
-                    if (locked()) throw new IllegalStateException(text(R.string.unlock));
-                    imeMenu.setEnabled(enable);
-                    note(enable ? R.string.ime_on : R.string.ime_off);
-                  } else {
-                    prefs.edit().putBoolean(feature, enable).apply();
-                    note(R.string.hook_state, featureName(feature), enabled(feature));
-                  }
-                } else if ("test".equals(command)) {
-                  if (locked()) throw new IllegalStateException(text(R.string.unlock));
-                  if ("internet".equals(feature)) showInternet(null);
-                  else if ("bluetooth".equals(feature)) showBluetooth(null);
-                  else if ("media".equals(feature)) testMedia();
-                  else if ("modes".equals(feature)) modes.show(null);
-                  else if ("flashlight".equals(feature)) flashlight.test();
-                  else if ("users".equals(feature)) users.preview();
-                  else if ("privacy".equals(feature)) privacy.show(null, true);
-                  else throw new IllegalArgumentException(text(R.string.unknown_panel));
-                } else if (!"status".equals(command)) throw new IllegalArgumentException(text(R.string.unknown_command));
-                code = 1;
-              } catch (Throwable e) {
-                if ("ime".equals(intent.getStringExtra("feature"))) note(R.string.ime_problem, e.toString());
-                else failure(intent.getStringExtra("feature"), e);
-                code = -1;
-              }
-              String imeValue = null;
-              boolean imeReadable = false;
-              try {
-                imeValue = imeMenu.read();
-                imeReadable = true;
-              } catch (RuntimeException error) {
-                note(R.string.ime_read_error, error.getClass().getSimpleName());
-              }
-              String report = status() + "\n" + text(R.string.ime_status,
-                  imeReadable ? String.valueOf(imeValue) : text(R.string.unreadable));
-              Bundle b = new Bundle();
-              b.putBoolean("ready", graph != null);
-              for (String key : Protocol.KEYS)
-                b.putBoolean(key, "ime".equals(key) ? "1".equals(imeValue) : saved(key));
-              b.putBoolean("imeReadable", imeReadable);
-              return new RuntimeReply(code, report, b, null);
-            });
+            RuntimeReply reply = RuntimeReply.capture(() -> handleCommand(intent));
             if (reply.failure() != null)
-              module.log(Log.ERROR, "OOSNativePanels", "Could not format SystemUI response", reply.failure());
+              module.log(Log.ERROR, "OOSNativePanels", "Could not prepare complete SystemUI response", reply.failure());
             setResultCode(reply.code());
             setResultData(reply.report());
             setResultExtras(reply.values());
@@ -191,6 +136,93 @@ final class PanelRuntime {
     else a.registerReceiver(receiver, filter, Protocol.PERMISSION, main);
     registered = true;
     note(R.string.control_ready);
+  }
+
+  RuntimeReply handleCommand(Intent intent) {
+    int code = 1;
+    refreshCommandResources(app, intent.getStringExtra("locales"));
+    String command = intent.getStringExtra("command");
+    String feature = intent.getStringExtra("feature");
+    try {
+      if ("set".equals(command)) {
+        if (!Protocol.isFeature(feature)) throw new IllegalArgumentException(text(R.string.unknown_panel));
+        boolean enable = intent.getBooleanExtra("enabled", false);
+        if (enable && !available(feature)) {
+          code = Protocol.UNAVAILABLE;
+        } else if ("ime".equals(feature)) {
+          if (locked()) throw new IllegalStateException(text(R.string.unlock));
+          imeMenu.setEnabled(enable);
+          note(enable ? R.string.ime_on : R.string.ime_off);
+        } else {
+          prefs.edit().putBoolean(feature, enable).apply();
+          note(R.string.hook_state, featureName(feature), enable);
+        }
+      } else if ("test".equals(command)) {
+        if (locked()) throw new IllegalStateException(text(R.string.unlock));
+        if ("internet".equals(feature)) showInternet(null);
+        else if ("bluetooth".equals(feature)) showBluetooth(null);
+        else if ("media".equals(feature)) testMedia();
+        else if ("modes".equals(feature)) modes.show(null);
+        else if ("flashlight".equals(feature)) flashlight.test();
+        else if ("users".equals(feature)) users.preview();
+        else if ("privacy".equals(feature)) privacy.show(null, true);
+        else throw new IllegalArgumentException(text(R.string.unknown_panel));
+      } else if (!"status".equals(command)) throw new IllegalArgumentException(text(R.string.unknown_command));
+    } catch (Throwable e) {
+      if ("ime".equals(feature)) note(R.string.ime_problem, e.toString());
+      else if ("set".equals(command)) recordFailure(feature, e);
+      else failure(feature, e);
+      code = -1;
+    }
+    String imeValue = null;
+    boolean imeReadable = false;
+    try {
+      imeValue = imeMenu.read();
+      imeReadable = true;
+    } catch (RuntimeException error) {
+      note(R.string.ime_read_error, error.getClass().getSimpleName());
+    }
+    Bundle values = new Bundle();
+    Bundle capabilities = new Bundle();
+    values.putString(Protocol.REVISION, BuildConfig.SYSTEM_UI_REVISION);
+    values.putBoolean("ready", graph != null);
+    for (String key : Protocol.KEYS) {
+      values.putBoolean(key, "ime".equals(key) ? "1".equals(imeValue) : saved(key));
+      capabilities.putBoolean(key, "ime".equals(key) ? imeReadable : available(key));
+    }
+    values.putBundle(Protocol.AVAILABLE, capabilities);
+    final String readImeValue = imeValue;
+    final boolean readIme = imeReadable;
+    return RuntimeReply.withReport(code, values, () -> status() + "\n" + text(R.string.ime_status,
+        readIme ? String.valueOf(readImeValue) : text(R.string.unreadable)));
+  }
+
+  private void refreshCommandResources(Application host, String locales) {
+    if (locales == null || locales.isEmpty()) return;
+    try {
+      // After an APK replacement the previous package Context can point at a removed APK.
+      Context current = host.createPackageContext(BuildConfig.APPLICATION_ID, 0);
+      strings = PanelLanguages.withLocales(current, PanelLanguages.resolve(
+          LocaleList.forLanguageTags(locales), host.getResources().getConfiguration().getLocales())).getResources();
+    } catch (android.content.pm.PackageManager.NameNotFoundException | RuntimeException unavailable) {
+      module.log(Log.WARN, "OOSNativePanels", "Could not refresh module strings", unavailable);
+    }
+  }
+
+  private boolean available(String feature) {
+    return switch (feature) {
+      case "notification_cards" -> combinedQs.layout.cards.isReady() && combinedQs.status == R.string.combined_selected;
+      case "ime" -> imeMenu != null;
+      case "internet" -> graph != null && (wifiHook || detailsHook);
+      case "bluetooth" -> graph != null && detailsHook;
+      case "media" -> graph != null && mediaHook;
+      case "modes" -> graph != null && modesHook;
+      case "channels" -> graph != null && channelsHook;
+      case "flashlight" -> graph != null && flashlightHook;
+      case "privacy" -> graph != null && privacyHook;
+      case "users" -> graph != null && detailsHook && users.ready;
+      default -> false;
+    };
   }
 
   Object provider(String name) throws Throwable {
@@ -422,16 +454,20 @@ final class PanelRuntime {
       failedInGrid.add(feature);
     else if (Protocol.isFeature(feature) && prefs != null)
       prefs.edit().putBoolean(feature, false).apply();
+    recordFailure(feature, e);
+    if (Looper.myLooper() == Looper.getMainLooper()) cleanup(feature);
+    else main.post(() -> cleanup(feature));
+    if (app != null)
+      main.post(() -> Toast.makeText(app, text(R.string.auto_disabled), Toast.LENGTH_LONG).show());
+  }
+
+  private void recordFailure(String feature, Throwable e) {
     Event entry = new Event(R.string.failure_detail, featureName(String.valueOf(feature)),
         e.getClass().getSimpleName(), String.valueOf(e.getMessage()));
     entry.trace = Log.getStackTraceString(e);
     record(entry);
     module.log(Log.ERROR, "OOSNativePanels", String.valueOf(feature), e);
     if (app != null) main.post(() -> snapshots.failure(app));
-    if (Looper.myLooper() == Looper.getMainLooper()) cleanup(feature);
-    else main.post(() -> cleanup(feature));
-    if (app != null)
-      main.post(() -> Toast.makeText(app, text(R.string.auto_disabled), Toast.LENGTH_LONG).show());
   }
 
   private void cleanup(String feature) {

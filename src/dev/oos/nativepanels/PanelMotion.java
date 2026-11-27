@@ -49,38 +49,27 @@ final class PanelMotion {
   void showFromTile(Dialog dialog, Object source, Object delegate, String tag) throws Throwable {
     if (dialog.getWindow() != null)
       dialog.getWindow().setWindowAnimations(android.R.style.Animation_Dialog);
-    Object controller = null;
-    if (source != null) {
-      Class<?> cuj = r.type("com.android.systemui.animation.DialogCuj");
-      Object marker =
-          cuj.getConstructor(int.class, String.class).newInstance(58, tag);
-      controller =
-          Reflect.invoke(
-              Reflect.method(
-                  r.type("com.android.systemui.animation.Expandable"),
-                  "dialogTransitionController",
-                  cuj),
-              source,
-              marker);
-    }
+    Object controller = dialogController(source, tag);
     if (controller == null) dialog.show();
     else {
       Object animator = Reflect.get(delegate, "dialogTransitionAnimator");
-      boolean shown =
-          (Boolean)
-              Reflect.invoke(
-                  Reflect.method(
-                      animator.getClass(),
-                      "show",
-                      Dialog.class,
-                      r.type("com.android.systemui.animation.DialogTransitionAnimator$Controller"),
-                      boolean.class),
-                  animator,
-                  dialog,
-                  controller,
-                  false);
+      boolean shown = showWithController(dialog, animator, controller);
       if (!shown && !dialog.isShowing()) dialog.show();
     }
+  }
+
+  Object dialogController(Object source, String tag) throws Throwable {
+    if (source == null) return null;
+    Class<?> cuj = r.type("com.android.systemui.animation.DialogCuj");
+    Object marker = cuj.getConstructor(int.class, String.class).newInstance(58, tag);
+    return Reflect.invoke(r.type("com.android.systemui.animation.Expandable")
+        .getMethod("dialogTransitionController", cuj), source, marker);
+  }
+
+  boolean showWithController(Dialog dialog, Object animator, Object controller) throws Throwable {
+    return (Boolean)Reflect.invoke(Reflect.method(animator.getClass(), "show", Dialog.class,
+        r.type("com.android.systemui.animation.DialogTransitionAnimator$Controller"), boolean.class),
+        animator, dialog, controller, false);
   }
 
   void install() throws Throwable {

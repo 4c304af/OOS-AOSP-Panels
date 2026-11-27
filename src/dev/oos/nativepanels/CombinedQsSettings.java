@@ -10,14 +10,18 @@ final class CombinedQsSettings {
   // Preserve the status bar switch across upgrades from 0.6.19.
   static final String HOME_BATTERY = "native_status_icons";
   static final String ANDROID_17_STATUS_BAR = "android_17_status_bar";
-  static final String MOBILE_ORDER = "mobile_type_before_signal";
   static final String PERMISSION_DIALOG = "native_permission_dialog";
+  static final String BLUETOOTH_DETAILS = "native_bluetooth_details";
+  static final String ABOUT_PHONE = "about_phone_m3e";
+  static final String LAUNCHER_ICONS = "launcher_monet_icons";
   static boolean standalone(String key) {
     return HOME_BATTERY.equals(key) || ANDROID_17_STATUS_BAR.equals(key)
-        || MOBILE_ORDER.equals(key) || PERMISSION_DIALOG.equals(key);
+        || PERMISSION_DIALOG.equals(key)
+        || BLUETOOTH_DETAILS.equals(key) || ABOUT_PHONE.equals(key) || LAUNCHER_ICONS.equals(key);
   }
 
   static final Uri URI = Uri.parse("content://" + AUTHORITY);
+  static final Uri LAUNCHER_URI = Uri.parse("content://dev.oos.nativepanels.launchericons");
 
   private static SharedPreferences settings(Context context) {
     return context.createDeviceProtectedStorageContext()
@@ -29,12 +33,16 @@ final class CombinedQsSettings {
   }
 
   static boolean enabled(Context context, String key) {
-    return settings(context).getBoolean(key, MOBILE_ORDER.equals(key));
+    return settings(context).getBoolean(key, false);
   }
 
   static boolean setEnabled(Context context, String key, boolean enabled) {
     // Persist before a host process starts or creates its next dialog.
-    return settings(context).edit().putBoolean(key, enabled).commit();
+    boolean saved = settings(context).edit().putBoolean(key, enabled).commit();
+    if (saved && LAUNCHER_ICONS.equals(key)) {
+      context.getContentResolver().notifyChange(LAUNCHER_URI, null);
+    }
+    return saved;
   }
 
   private CombinedQsSettings() {}

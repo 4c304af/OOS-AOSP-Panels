@@ -4,6 +4,16 @@ import static org.junit.Assert.*;
 import org.junit.Test;
 
 public class SplitShadeRotationTest {
+  @Test public void unlockedSplitContentTracksSlowPullReversalAndCollapse() {
+    float[] progress = {0f, .17f, .39f, .525f, .66f, 1f, .525f, .39f, 0f};
+    float[] alpha = {0f, 0f, 0f, .5f, 1f, 1f, .5f, 0f, 0f};
+    for (int i = 0; i < progress.length; i++) {
+      assertEquals(alpha[i], ShadePullMotion.splitContentAlpha(progress[i]), .0001f);
+      assertEquals(Math.round(128f * alpha[i]), NotificationStackScrim.surfaceAlpha(progress[i], 1f, true));
+    }
+    assertEquals(0f, ShadePullMotion.splitContentAlpha(Float.NaN), 0f);
+  }
+
   @Test public void fingerUpScrollsDownAndTheBottomYields() {
     assertTrue(CombinedTouch.canScroll(0, 100, -20, false));
     assertFalse(CombinedTouch.canScroll(0, 100, 20, false));

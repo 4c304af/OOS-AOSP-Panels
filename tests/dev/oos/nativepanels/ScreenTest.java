@@ -59,17 +59,18 @@ public class ScreenTest {
   }
 
   @Test
-  public void privacyPreviewAndReplacementAreIndependent() {
+  public void privacyPreviewAndReplacementAreIndependent() throws Exception {
     checkPreviewAndSwitch("privacy", R.string.privacy);
   }
 
   @Test
-  public void userSwitcherCanBePreviewedBeforeEnablingOosReplacement() {
+  public void userSwitcherCanBePreviewedBeforeEnablingOosReplacement() throws Exception {
     checkPreviewAndSwitch("users", R.string.users);
   }
 
-  private void checkPreviewAndSwitch(String key, int label) {
-    try (ActivityController<MainActivity> controller =
+  private void checkPreviewAndSwitch(String key, int label) throws Exception {
+    try (TestSystemUiReceiver host = new TestSystemUiReceiver();
+        ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup().visible()) {
       MainActivity activity = controller.get();
       ShadowLooper.idleMainLooper();
@@ -91,6 +92,40 @@ public class ScreenTest {
         }
       }
       assertEquals(java.util.Arrays.asList("test", "set"), commands);
+    }
+  }
+
+  @Test public void inactiveCardHookKeepsAnOffSwitchDisabled() throws Exception {
+    try (TestSystemUiReceiver host = new TestSystemUiReceiver();
+        ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+      ShadowLooper.idleMainLooper();
+      MaterialSwitch toggle = controller.get().getWindow().getDecorView().findViewWithTag("notification_cards");
+      assertFalse(toggle.isEnabled());
+      assertFalse(toggle.isChecked());
+      assertFalse(host.preferences.contains("notification_cards"));
+    }
+  }
+
+  @Test public void notificationCardSwitchWaitsForAcknowledgementAndSurvivesReopening() throws Exception {
+    try (TestSystemUiReceiver host = new TestSystemUiReceiver()) {
+      host.enableCardHook();
+      try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+        ShadowLooper.idleMainLooper();
+        MaterialSwitch toggle = controller.get().getWindow().getDecorView().findViewWithTag("notification_cards");
+        assertTrue(toggle.isEnabled());
+        assertFalse(toggle.isChecked());
+        toggle.performClick();
+        assertFalse(toggle.isChecked());
+        assertFalse(toggle.isEnabled());
+        ShadowLooper.idleMainLooper();
+        assertTrue(toggle.isChecked());
+        assertTrue(toggle.isEnabled());
+        assertTrue(host.preferences.getBoolean("notification_cards", false));
+        controller.recreate();
+        ShadowLooper.idleMainLooper();
+        toggle = controller.get().getWindow().getDecorView().findViewWithTag("notification_cards");
+        assertTrue(toggle.isChecked());
+      }
     }
   }
 
@@ -154,6 +189,17 @@ public class ScreenTest {
       assertTrue(restored.isChecked());
       restored.performClick();
       assertFalse(CombinedQsSettings.enabled(c.get(), key));
+    }
+  }
+
+  @Test public void oldEnabledMobileOrderSettingIsIgnoredAfterUpgrade() {
+    String key = "mobile_type_before_signal";
+    var context = org.robolectric.RuntimeEnvironment.getApplication();
+    assertTrue(CombinedQsSettings.setEnabled(context, key, true));
+    try (ActivityController<MainActivity> c = Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity app = c.get();
+      assertNull(app.getWindow().getDecorView().findViewWithTag(key));
+      assertNull(app.getContentResolver().call(CombinedQsSettings.URI, key, null, null));
     }
   }
 
@@ -291,7 +337,8 @@ public class ScreenTest {
 
   private void assertHomeSwitches(View decor) {
     String[] settings = {"combined_qs", CombinedQsSettings.HOME_BATTERY, CombinedQsSettings.ANDROID_17_STATUS_BAR,
-        CombinedQsSettings.MOBILE_ORDER, CombinedQsSettings.PERMISSION_DIALOG};
+        CombinedQsSettings.PERMISSION_DIALOG, CombinedQsSettings.BLUETOOTH_DETAILS, CombinedQsSettings.ABOUT_PHONE,
+        CombinedQsSettings.LAUNCHER_ICONS};
     for (String key : Protocol.KEYS) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
     for (String key : settings) assertTrue(key, decor.findViewWithTag(key) instanceof MaterialSwitch);
     assertEquals(Protocol.KEYS.length + settings.length, countSwitches(decor));

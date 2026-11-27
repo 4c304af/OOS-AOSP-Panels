@@ -1,0 +1,55 @@
+import java.security.MessageDigest
+
+// Follow this project's Java classes from the LSPosed entry point. OptionalHostHooks is
+// dispatched only in other processes. An app-only class therefore does not version SystemUI.
+def sources = fileTree('src/dev/oos/nativepanels') { include '*.java'; exclude 'OptionalHostHooks.java' }
+        .collectEntries { [(it.name - '.java'): it] }
+def pending = ['ModuleEntry']
+def host = new TreeMap<String, String>()
+def strings = new TreeSet<String>()
+def resourceIds = new TreeSet<String>()
+while (!pending.empty) {
+    String name = pending.pop()
+    if (host.containsKey(name)) continue
+    String source = sources[name].getText('UTF-8').replace('\r\n', '\n')
+    host[name] = source
+    (source =~ /\b[A-Za-z_][A-Za-z_0-9]*\b/).each { word ->
+        if (sources.containsKey(word) && !host.containsKey(word)) pending.add(word)
+    }
+    (source =~ /(?<![\w.])R\.(string|drawable)\.(\w+)/).each { match ->
+        resourceIds.add(match[1] + '/' + match[2])
+        if (match[1] == 'string') strings.add(match[2])
+    }
+}
+
+def idsFile = file('gradle/system-ui-ids.txt')
+def ids = idsFile.readLines('UTF-8').collectEntries { line ->
+    def (resource, id) = line.split(' = ')
+    [(resource.substring(resource.indexOf(':') + 1)): id]
+}
+resourceIds.each { name ->
+    if (!ids.containsKey(name)) throw new GradleException("Pin the SystemUI resource ID for " + name)
+    host['R.' + name.replace('/', '.')] = ids[name]
+}
+// Loaded hosts retain compiled IDs after APK replacement, including the Android 17 artwork.
+host['system-ui-ids'] = idsFile.getText('UTF-8').replace('\r\n', '\n')
+fileTree('res') { include 'values*/strings.xml' }.each { xml ->
+    new XmlParser().parse(xml).string.findAll { strings.contains(it.@name) }.each { node ->
+        host[xml.parentFile.name + '/' + node.@name] = node.text()
+    }
+}
+// Include child artwork and color definitions as well as the directly referenced vectors.
+fileTree('res') {
+    include 'drawable*/*.xml', 'color*/*.xml', 'values*/colors.xml'
+}.each { xml ->
+    host[xml.parentFile.name + '/' + xml.name] = xml.getText('UTF-8').replace('\r\n', '\n')
+}
+fileTree('resources/META-INF/xposed').each { host['xposed/' + it.name] = it.getText('UTF-8').trim() }
+def digest = MessageDigest.getInstance('SHA-256')
+host.each { key, value ->
+    digest.update(key.getBytes('UTF-8'))
+    digest.update((byte) 0)
+    digest.update(value.getBytes('UTF-8'))
+    digest.update((byte) 0)
+}
+ext.systemUiRevision = digest.digest().encodeHex().toString()

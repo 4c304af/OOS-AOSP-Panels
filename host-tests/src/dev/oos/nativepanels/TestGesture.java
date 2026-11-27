@@ -46,8 +46,8 @@ public class TestGesture {
   e.x=400;e.y=10;prepare.invoke(touch,target,window,e);expect(field(touch,"scrollHost").get(touch)==null,"header can close");
   e.y=300;node.max=0;node.value=0;prepare.invoke(touch,target,window,e);expect(field(touch,"scrollHost").get(touch)==null,"fitting tile page yields vertical gesture");
   node.max=320;node.value=30;prepare.invoke(touch,target,window,e);
-  layout.scrimTranslation=-135.8f;set(layout,"headerTranslation",-135.8f);frame.context.res.config.orientation=1;window.w=900;window.h=2000;
-  layout.resetGeometry(target,true);expect(fragment.scrollState.offset==0 && layout.contentOffset()==0f && layout.scrimTranslation==0f,"old scroll and translation removed");
+  set(layout,"headerTranslation",-135.8f);frame.context.res.config.orientation=1;window.w=900;window.h=2000;
+  layout.resetGeometry(target,true);expect(fragment.scrollState.offset==0 && layout.contentOffset()==0f,"old scroll and translation removed");
   prepare.invoke(touch,target,window,e);expect(field(touch,"scrollHost").get(touch)==null,"portrait never inherits split gesture");
   System.out.println("PASS: production scroll region hit test, upward gesture, edge handoff, notification/header exclusion, and landscape-to-portrait cleanup.");
  }

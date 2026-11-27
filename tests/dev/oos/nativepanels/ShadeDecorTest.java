@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.os.BatteryManager;
 import android.view.DisplayCutout;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
@@ -76,10 +77,14 @@ public class ShadeDecorTest {
     decor.dispose();
   }
 
-  @Test public void expandedExtraPaddingRespectsSmallerRomLayouts() {
-    assertEquals(8f, ShadeLayout.expandedPadding(80f), 0);
-    assertEquals(4f, ShadeLayout.expandedPadding(4f), 0);
-    assertEquals(0f, ShadeLayout.expandedPadding(0f), 0);
+  @Test public void expandedSpacerAccountsForPanelPaddingWithoutCoveringTheHeader() {
+    // Portrait keeps 8dp of the panel's 16dp padding under the date. Split only trims 2dp
+    // of that padding, and honors a header already reserved by the surrounding pane.
+    assertEquals(208, ShadeDecor.expandedSpacer(200, 16, 8) + 16);
+    assertEquals(62, ShadeDecor.expandedSpacer(48, 16, 2) + 16);
+    assertEquals(0, ShadeDecor.expandedSpacer(0, 16, 2));
+    assertEquals(200, ShadeDecor.expandedSpacer(200, 4, 8) + 4);
+    assertEquals(200, ShadeDecor.expandedSpacer(200, 0, 8));
   }
 
   @Test public void automaticModeChangesBothButtonShapeAndSelection() throws Exception {
@@ -191,20 +196,117 @@ public class ShadeDecorTest {
     ShadeDecor decor = new ShadeDecor(frame, null, null);
     decor.install();
     assertTrue(decor.expandedHeight() > decor.headerHeight());
+    int nativeHeader = decor.expandedHeight() + 100;
+    assertEquals(nativeHeader, decor.sceneHeaderHeight(nativeHeader, false));
+    assertEquals(decor.expandedGridHeaderHeight(false), decor.sceneHeaderHeight(nativeHeader, true));
     FrameLayout content = decor.createHeaderHost(c);
     TextClock big = (TextClock)content.getChildAt(1);
     TextClock small = (TextClock)((LinearLayout)content.getChildAt(0)).getChildAt(0);
-    var position = ShadeDecor.class.getDeclaredMethod("positionHeader", boolean.class);
-    position.setAccessible(true);
     decor.expansion(1f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(android.view.View.VISIBLE, big.getVisibility());
     assertTrue(big.getTextSize() > small.getTextSize() * 2);
     assertEquals(0f, small.getAlpha(), .001f);
     decor.expansion(0f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(android.view.View.INVISIBLE, big.getVisibility());
     assertEquals(1f, small.getAlpha(), .001f);
+    decor.dispose();
+  }
+
+  public static final class ClockGraph {
+    int launches;
+    final ClockGraph clockInteractorProvider = this;
+    public ClockGraph get() { return this; }
+    public void launchClockActivity() { launches++; }
+  }
+
+  @Test public void onlyTheVisibleClockOpensTheSystemClockAction() {
+    var activity = org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup().get();
+    var runtime = new PanelRuntime(null, getClass().getClassLoader());
+    var graph = new ClockGraph();
+    runtime.graph = graph;
+    ShadeDecor decor = new ShadeDecor(new FrameLayout(activity), null, runtime);
+    decor.install();
+    FrameLayout host = decor.createHeaderHost(activity);
+    activity.setContentView(host);
+    LinearLayout row = (LinearLayout)host.getChildAt(0);
+    View small = row.getChildAt(0), date = row.getChildAt(1), large = host.getChildAt(1);
+    decor.setOpen(true, false);
+    for (float progress : new float[]{0f, .3f, .7f, 1f, 0f}) {
+      decor.expansion(progress);
+      decor.positionHeader(Float.NaN, 0f);
+      host.measure(View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY),
+          View.MeasureSpec.makeMeasureSpec(decor.expandedHeight(), View.MeasureSpec.EXACTLY));
+      host.layout(0, 0, 900, decor.expandedHeight());
+      View active = progress < .5f ? small : large;
+      View inactive = active == small ? large : small;
+      assertTrue(active.isClickable() && active.isFocusable());
+      assertEquals("android.widget.Button", active.getAccessibilityClassName());
+      assertFalse(inactive.isClickable() || inactive.isFocusable());
+      assertFalse(date.isClickable());
+      int[] xy = new int[2];
+      active.getLocationInWindow(xy);
+      assertTrue(decor.hitClock(xy[0] + 1, xy[1] + 1));
+      assertFalse(decor.hitClock(899, xy[1] + 1));
+      int before = graph.launches;
+      inactive.performClick();
+      date.performClick();
+      assertEquals(before, graph.launches);
+      int[] origin = new int[2];
+      host.getLocationInWindow(origin);
+      float x = xy[0] - origin[0] + 1, y = xy[1] - origin[1] + 1;
+      dispatchTap(host, x, y, MotionEvent.ACTION_CANCEL);
+      assertEquals(before, graph.launches);
+      dispatchTap(host, x, y, MotionEvent.ACTION_UP);
+      assertEquals(before + 1, graph.launches);
+    }
+    runtime.graph = new ClockGraph();
+    decor.setOpen(true, true);
+    decor.positionHeader(1f, 0f);
+    large.performClick();
+    assertEquals(1, ((ClockGraph)runtime.graph).launches);
+    decor.setOpen(false, false);
+    large.performClick();
+    assertEquals(1, ((ClockGraph)runtime.graph).launches);
+    runtime.graph = null;
+    decor.positionHeader(1f, 0f);
+    assertFalse(large.hasOnClickListeners());
+    decor.dispose();
+  }
+
+  private static void dispatchTap(View host, float x, float y, int endAction) {
+    long t = android.os.SystemClock.uptimeMillis();
+    for (int action : new int[]{MotionEvent.ACTION_DOWN, endAction}) {
+      MotionEvent event = MotionEvent.obtain(t, action == MotionEvent.ACTION_DOWN ? t : t + 30, action, x, y, 0);
+      try { host.dispatchTouchEvent(event); }
+      finally { event.recycle(); }
+    }
+    Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+  }
+
+  @Test public void directLockPullMovesAndFadesTheExpandedClockWithoutMorphingFromTheSmallClock() {
+    Context context = RuntimeEnvironment.getApplication();
+    ShadeDecor decor = new ShadeDecor(new FrameLayout(context), null, null);
+    decor.install();
+    FrameLayout host = decor.createHeaderHost(context);
+    View clock = host.getChildAt(1), status = host.getChildAt(0);
+    decor.positionHeader(1f, 0f);
+    float restingClock = clock.getTranslationY(), restingStatus = status.getTranslationY();
+    float density = context.getResources().getDisplayMetrics().density;
+    for (float p : new float[]{.25f, .58f, .79f, .93f, .79f, .25f, 1f}) {
+      float inherited = -12 * (1 - p) * density;
+      decor.positionHeader(p, inherited);
+      assertEquals(restingClock - (1 - p) * Math.round(48 * density), clock.getTranslationY() + inherited, .001f);
+      assertEquals(restingStatus - (1 - p) * Math.round(72 * density), status.getTranslationY() + inherited, .001f);
+      float alpha = Math.max(0f, (p - .58f) / .42f);
+      assertEquals(alpha, clock.getAlpha() * p, .001f);
+      assertEquals(alpha, status.getAlpha() * p, .001f);
+      assertEquals(1f, clock.getScaleY(), .001f);
+    }
+    decor.positionHeader(Float.NaN, 0);
+    assertEquals(View.INVISIBLE, clock.getVisibility());
+    assertEquals(1f, status.getAlpha(), .001f);
     decor.dispose();
   }
 
@@ -256,12 +358,10 @@ public class ShadeDecorTest {
     TextClock compactClock = (TextClock) statusRow.getChildAt(0);
     TextClock date = (TextClock) statusRow.getChildAt(1);
     compactClock.setText("12:34");
-    var position = ShadeDecor.class.getDeclaredMethod("positionHeader", boolean.class);
-    position.setAccessible(true);
     var measureInsets = ShadeDecor.class.getDeclaredMethod("measureHeaderInsets", WindowInsets.class);
     measureInsets.setAccessible(true);
     decor.expansion(1f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(statusRow.getPaddingTop() + breathing, expandedClock.getTranslationY(), .001f);
     decor.expansion(0f);
     Rect center = new Rect(width / 2 - 8, 0, width / 2 + 8, inset);
@@ -270,14 +370,34 @@ public class ShadeDecorTest {
         .setDisplayCutout(new DisplayCutout(Insets.of(0, inset, 0, 0), null, center, null, null))
         .build());
     assertEquals(inset, statusRow.getPaddingTop());
-    position.invoke(decor, true);
+    // QQS and QS must both reserve the rows we own, even if the ROM keeps its
+    // former large-clock height. Otherwise the scene interpolates a temporary void.
+    int nativeHeight = decor.expandedHeight() + Math.round(120f * density);
+    assertEquals(decor.headerHeight(), decor.sceneHeaderHeight(nativeHeight, false));
+    assertEquals(decor.expandedGridHeaderHeight(false), decor.sceneHeaderHeight(nativeHeight, true));
+    for (float progress : new float[]{0f, .25f, .49f, .5f, .8f, 1f, .8f, .49f, 0f}) {
+      decor.expansion(progress);
+      root.setTranslationY(-Math.round(60f * density) * progress);
+      frame.setTranslationY(-Math.round(12f * density) * progress);
+      measureInsets.invoke(decor, new WindowInsets.Builder()
+          .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
+          .build());
+      decor.positionHeader(Float.NaN, 0f);
+      assertEquals(inset, statusRow.getPaddingTop());
+      assertEquals(decor.headerHeight() + Math.round((decor.expandedHeight() - decor.headerHeight()) * progress),
+          host.getLayoutParams().height);
+      assertEquals(decor.headerHeight(), decor.sceneHeaderHeight(nativeHeight, false));
+    }
+    root.setTranslationY(0f);
+    frame.setTranslationY(0f);
+    decor.positionHeader(Float.NaN, 0f);
     host.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
         View.MeasureSpec.makeMeasureSpec(decor.headerHeight(), View.MeasureSpec.EXACTLY));
     host.layout(0, 0, width, decor.headerHeight());
     int compactDateWidth = date.getMeasuredWidth();
 
     decor.expansion(1f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     int compactExpandedHeight = host.getLayoutParams().height;
     assertTrue("Expanded header should follow its rows, not a fixed 120dp scene minimum",
         compactExpandedHeight - inset - breathing < Math.round(120f * density));
@@ -300,27 +420,41 @@ public class ShadeDecorTest {
         .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
         .setDisplayCutout(new DisplayCutout(Insets.of(0, inset, 0, 0), null, sideCutout, null, null))
         .build());
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(compactExpandedHeight, host.getLayoutParams().height);
     assertEquals(inset + breathing, expandedClock.getTranslationY(), .001f);
+
+    // A lockscreen pull uses the upstream direct motion without changing the
+    // compact resting clock/status positions or their 4dp gap.
+    float restingClock = expandedClock.getTranslationY(), restingStatus = statusRow.getTranslationY();
+    for (float progress : new float[]{.25f, .58f, .79f, 1f, .79f, .25f}) {
+      float inherited = -12f * density * (1f - progress);
+      decor.positionHeader(progress, inherited);
+      assertEquals(restingClock - (1f - progress) * Math.round(48f * density),
+          expandedClock.getTranslationY() + inherited, .001f);
+      assertEquals(restingStatus - (1f - progress) * Math.round(72f * density),
+          statusRow.getTranslationY() + inherited, .001f);
+      assertEquals(1f, expandedClock.getScaleY(), .001f);
+    }
+    decor.positionHeader(Float.NaN, 0f);
 
     WindowInsets statusOnly = new WindowInsets.Builder()
         .setInsetsIgnoringVisibility(WindowInsets.Type.statusBars(), Insets.of(0, inset, 0, 0))
         .build();
     measureInsets.invoke(decor, statusOnly);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(compactExpandedHeight, host.getLayoutParams().height);
     assertEquals(inset + breathing, expandedClock.getTranslationY(), .001f);
 
     frame.layout(0, inset, width, height);
     measureInsets.invoke(decor, statusOnly);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(0, statusRow.getPaddingTop());
     assertEquals(breathing, expandedClock.getTranslationY(), .001f);
     assertEquals(compactExpandedHeight - inset, host.getLayoutParams().height);
 
     decor.expansion(0f);
-    position.invoke(decor, true);
+    decor.positionHeader(Float.NaN, 0f);
     assertEquals(View.INVISIBLE, expandedClock.getVisibility());
     assertEquals(View.VISIBLE, compactClock.getVisibility());
     assertEquals(decor.headerHeight(), host.getLayoutParams().height);

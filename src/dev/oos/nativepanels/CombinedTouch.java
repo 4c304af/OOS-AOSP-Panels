@@ -25,6 +25,9 @@ final class CombinedTouch {
   private boolean reversed, committed, disallowed;
   private int claims, edgePasses;
   private String lastSplit = "none";
+  private Field canScrollQs;
+  private Method scrollForward;
+  private final CollapseDrag collapseDrag = new CollapseDrag();
 
   private Field left, top, right, bottom, clipPath, scroller;
   private final Rect visible = new Rect();
@@ -76,6 +79,11 @@ final class CombinedTouch {
     right = rect.getField("right");
     bottom = rect.getField("bottom");
     Class<?> window = r.type("com.android.systemui.shade.NotificationShadeWindowView");
+    Class<?> frame = r.type("com.android.systemui.qs.composefragment.FrameLayoutTouchPassthrough");
+    try {
+      canScrollQs = Reflect.field(frame, "canScrollQs");
+      scrollForward = Reflect.method(r.type("com.android.systemui.qs.composefragment.QSFragmentCompose$onCreateView$canScrollQs$1"), "forward");
+    } catch (ReflectiveOperationException missing) { r.combinedQs.layout.warn(missing); }
     r.module.hook(window.getDeclaredMethod("dispatchTouchEvent", MotionEvent.class))
         .setId("native-panels:preview-gesture").intercept(c -> {
           MotionEvent e = (MotionEvent)c.getArg(0);
@@ -85,26 +93,30 @@ final class CombinedTouch {
           if (action == MotionEvent.ACTION_DOWN) {
             r.settingsLaunch.interruptForTouch();
             target.preview.down(e);
-            cancelSplitGesture();
+            cancelGestures();
             try { prepareSplit(target, (View)c.getThisObject(), e); }
             catch (Exception err) { r.combinedQs.layout.warn(err); }
           } else if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
-            cancelSplitGesture();
+            cancelGestures();
           } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE && owns(e) && !committed) {
             decideSplitDirection(e.getRawX() - scrollX, e.getRawY() - scrollY,
                 android.view.ViewConfiguration.get(target.frame.getContext()).getScaledTouchSlop());
+          } else if (action == MotionEvent.ACTION_MOVE && collapseDrag.upwards(e)) {
+            try {
+              if (target != r.combinedQs.layout.touchOwner() || target.frame != collapseDrag.frame) collapseDrag.clear();
+              else if (!(Boolean)scrollForward.invoke(canScrollQs.get(target.frame))) collapseDrag.handBack();
+            } catch (ReflectiveOperationException missing) { collapseDrag.clear(); r.combinedQs.layout.warn(missing); }
           }
           try { return c.proceed(); }
           finally {
             if (action == MotionEvent.ACTION_DOWN && scrollHost != null && !disallowed) cancelSplitGesture();
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-              cancelSplitGesture();
+              cancelGestures();
               target.preview.finish(e);
               target.dragging = false;
             }
           }
         });
-    Class<?> frame = r.type("com.android.systemui.qs.composefragment.FrameLayoutTouchPassthrough");
     clipPath = Reflect.field(frame, "currentClippingPath");
     Class<?> container = r.type("com.android.systemui.shade.NotificationsQuickSettingsContainer");
     scroller = Reflect.field(container, "mStackScroller");
@@ -114,7 +126,7 @@ final class CombinedTouch {
     r.module.hook(container.getMethod("dispatchTouchEvent", MotionEvent.class)).setId("native-panels:qs-gesture").intercept(c -> {
       MotionEvent e = (MotionEvent)c.getArg(0);
       if (e.getActionMasked() != MotionEvent.ACTION_DOWN) return c.proceed();
-      ShadeDecor candidate = r.combinedQs.layout.touchOwner();
+      ShadeDecor candidate = r.combinedQs.layout.visibleDecor();
       if (candidate == null || !belongs(candidate.frame, (View)c.getThisObject()))
         return c.proceed();
       owner = candidate;
@@ -205,6 +217,13 @@ final class CombinedTouch {
     // The passthrough frame also has its own swipe interceptor, below the QS controller.
     r.module.hook(frame.getDeclaredMethod("onInterceptTouchEvent", MotionEvent.class)).setId("native-panels:qs-frame-input").intercept(c -> {
       MotionEvent e = (MotionEvent)c.getArg(0);
+      if (e.getActionMasked() == MotionEvent.ACTION_DOWN && scrollForward != null && e.getPointerCount() == 1) {
+        ShadeLayout layout = r.combinedQs.layout;
+        ShadeDecor active = layout.touchOwner();
+        if (active != null && active.frame == c.getThisObject() && !active.splitLayout()
+            && CombinedSettingsLaunch.fullyExpanded(layout.sceneFraction()) && !layout.isEditing())
+          collapseDrag.begin(active.frame, e);
+      }
       if (owns(e) && e.getActionMasked() == MotionEvent.ACTION_MOVE) return false;
       if (inDown && atControl && owner != null && c.getThisObject() == owner.frame) {
         last = "QS frame received down";
@@ -214,7 +233,7 @@ final class CombinedTouch {
       }
       if (e.getActionMasked() == MotionEvent.ACTION_MOVE && frameDown == e.getDownTime()) {
         View frameView = (View)c.getThisObject();
-        ShadeDecor active = r.combinedQs.layout.touchOwner();
+        ShadeDecor active = r.combinedQs.layout.visibleDecor();
         int slop = android.view.ViewConfiguration.get(frameView.getContext()).getScaledTouchSlop();
         if (e.getPointerCount() == 1 && active != null && active.frame == frameView
             && !verticalDrag(e.getX() - frameX, e.getY() - frameY, slop)) return false;
@@ -250,7 +269,7 @@ final class CombinedTouch {
       if (action == MotionEvent.ACTION_DOWN) {
         gesture = -1;
         vertical = false;
-        ShadeDecor target = r.combinedQs.layout.touchOwner();
+        ShadeDecor target = r.combinedQs.layout.visibleDecor();
         if (target == null || !r.combinedQs.layout.isSelected(qs.get(c.getThisObject()))) return c.proceed();
         View view = (View)panel.get(c.getThisObject());
         if (!belongs(target.frame, view) || e.getPointerCount() != 1) return c.proceed();
@@ -282,7 +301,7 @@ final class CombinedTouch {
         View view = (View)panel.get(c.getThisObject());
         int slop = android.view.ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
         vertical = verticalDrag(e.getX() - startX, e.getY() - startY, slop);
-        if (!vertical && r.combinedQs.layout.active()) return false;
+        if (!vertical && r.combinedQs.layout.gridVisible()) return false;
       }
       return c.proceed();
     });
@@ -348,6 +367,11 @@ final class CombinedTouch {
     }
   }
 
+  void cancelGestures() {
+    collapseDrag.clear();
+    cancelSplitGesture();
+  }
+
   void cancelSplitGesture() {
     if (disallowed && scrollHost != null && scrollHost.getParent() != null)
       scrollHost.getParent().requestDisallowInterceptTouchEvent(false);
@@ -356,6 +380,47 @@ final class CombinedTouch {
 
   static boolean verticalDrag(float dx, float dy, int slop) {
     return Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx);
+  }
+
+  // Observe the original single-pointer stream at the window, before its parents
+  // decide whether to intercept. A vertical scroll may reach the end mid-gesture.
+  static final class CollapseDrag {
+    private ViewGroup frame;
+    private long downTime;
+    private float x, y, lastY;
+    private int slop;
+    private boolean vertical;
+
+    void begin(ViewGroup frame, MotionEvent down) {
+      this.frame = frame;
+      slop = android.view.ViewConfiguration.get(frame.getContext()).getScaledTouchSlop();
+      downTime = down.getDownTime();
+      x = down.getRawX();
+      lastY = y = down.getRawY();
+      vertical = false;
+    }
+
+    boolean upwards(MotionEvent move) {
+      if (frame == null || move.getDownTime() != downTime || move.getPointerCount() != 1) return false;
+      float dx = move.getRawX() - x, dy = move.getRawY() - y;
+      boolean up = move.getRawY() < lastY;
+      lastY = move.getRawY();
+      if (!vertical) {
+        if (Math.abs(dx) > slop && Math.abs(dx) >= Math.abs(dy)) { clear(); return false; }
+        vertical = verticalDrag(dx, dy, slop);
+      }
+      return vertical && dy < -slop && up;
+    }
+
+    void handBack() {
+      // Compose can disallow interception through the frame, and the ROM frame
+      // can also disallow it directly on its parent at DOWN.
+      frame.requestDisallowInterceptTouchEvent(false);
+      if (frame.getParent() != null) frame.getParent().requestDisallowInterceptTouchEvent(false);
+      clear();
+    }
+
+    void clear() { frame = null; }
   }
 
   static boolean excludes(Path cutout, float x, float y) {
@@ -387,6 +452,9 @@ final class CombinedTouch {
 
   private boolean hitControl(ShadeDecor o, float x, float y) throws Exception {
     if (!o.frame.isShown() || !o.frame.isAttachedToWindow() || r.combinedQs.layout.isEditing()) return false;
+    if (o.hitClock(x, y)) return true;
+    // On keyguard only the clock uses this routing. Its native action handles unlocking.
+    if (o != r.combinedQs.layout.touchOwner()) return false;
     if (host == null || !host.isAttachedToWindow() || !belongs(host, o.frame)) host = findHost(o.frame);
     if (host == null) return false;
     if (o.hitControl(x, y)) return true;
@@ -401,6 +469,6 @@ final class CombinedTouch {
     return false;
   }
 
-  void reset() { cancelSplitGesture(); claims = edgePasses = 0; gesture = frameDown = -1; parentDowns = parentPasses = 0; host = null; owner = null; atControl = false; inDown = false; downs = stackPasses = clipPasses = delivered = cancelled = 0; last = "none"; lastComposeAction = -1; }
+  void reset() { cancelGestures(); claims = edgePasses = 0; gesture = frameDown = -1; parentDowns = parentPasses = 0; host = null; owner = null; atControl = false; inDown = false; downs = stackPasses = clipPasses = delivered = cancelled = 0; last = "none"; lastComposeAction = -1; }
   String report() { return "QS touch: splitScroll=" + claims + " splitEdgePass=" + edgePasses + " splitLast=" + lastSplit + " range=" + initialScroll + "/" + initialMax + " parentDown=" + parentDowns + " parentPass=" + parentPasses + " downs=" + downs + " stackPass=" + stackPasses + " clipPass=" + clipPasses + " last=" + last + " composeDown=" + delivered + " cancel=" + cancelled + " composeLast=" + (lastComposeAction < 0 ? "none" : MotionEvent.actionToString(lastComposeAction) + "/" + lastComposeHandled); }
 }

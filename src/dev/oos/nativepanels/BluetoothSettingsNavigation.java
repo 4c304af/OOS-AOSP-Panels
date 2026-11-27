@@ -61,12 +61,27 @@ final class BluetoothSettingsNavigation {
 
   static Intent redirect(Context context, Intent original) {
     if (original == null) return null;
+    boolean nativeDetails = BluetoothDetailsIntents.isNativeDetails(original)
+        && BluetoothDetailsSettings.readEnabled(context);
+    return redirect(context, original, nativeDetails);
+  }
+
+  static Intent redirect(Context context, Intent original, boolean nativeDetails) {
+    if (original == null) return null;
     String action = original.getAction();
     if (!LIST.equals(action) && !DEVICE.equals(action) && !Settings.ACTION_BLUETOOTH_SETTINGS.equals(action))
       return original;
+    if (DEVICE.equals(action) && !BluetoothDetailsIntents.isNativeDetails(original)) return original;
     String pkg = OosSettingsIntents.PACKAGE;
     Intent list = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS).setPackage(pkg).setFlags(original.getFlags());
     if (DEVICE.equals(action)) {
+      if (nativeDetails) {
+        Intent target = BluetoothDetailsIntents.fromNative(context, original, true);
+        if (target != original) return target;
+        // A missing or malformed selection must not silently open a different page.
+        // If native Settings is absent, the selected OEM details below are the fallback.
+        if (BluetoothDetailsIntents.selectedNativeAddress(original) == null) return original;
+      }
       Bundle args = original.getBundleExtra(OosSettingsIntents.FRAGMENT_ARGS);
       String address = args == null ? null : args.getString("device_address");
       if (BluetoothAdapter.checkBluetoothAddress(address)) {
@@ -80,6 +95,7 @@ final class BluetoothSettingsNavigation {
           if (details.resolveActivity(context.getPackageManager()) != null) return details;
         }
       }
+      if (nativeDetails) return original;
     }
     return list.resolveActivity(context.getPackageManager()) != null ? list : original;
   }

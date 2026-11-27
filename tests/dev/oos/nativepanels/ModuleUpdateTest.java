@@ -21,10 +21,10 @@ import org.robolectric.shadows.ShadowLooper;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35)
 public class ModuleUpdateTest {
-  @Test public void openingAndRecreatingUpdatedSettingsCannotCallTheOlderSystemUiReceiver() {
+  @Test public void openingAndRecreatingSettingsUsesTheCompatibleSystemUiReceiver() {
     IntentFilter legacy = new IntentFilter("dev.oos.nativepanels.COMMAND");
-    IntentFilter previous = new IntentFilter("dev.oos.nativepanels.COMMAND." + (BuildConfig.VERSION_CODE - 1));
-    IntentFilter current = new IntentFilter(Protocol.ACTION);
+    IntentFilter previous = new IntentFilter("dev.oos.nativepanels.COMMAND.87");
+    IntentFilter current = new IntentFilter("dev.oos.nativepanels.COMMAND." + BuildConfig.SYSTEM_UI_REVISION);
     try (ActivityController<MainActivity> controller =
         Robolectric.buildActivity(MainActivity.class).setup().visible()) {
       ShadowLooper.idleMainLooper();
@@ -36,8 +36,8 @@ public class ModuleUpdateTest {
         if (!Protocol.TARGET.equals(request.getPackage())) continue;
         assertEquals("Opening settings only requests a status", "status", request.getStringExtra("command"));
         assertFalse("The pre-upgrade host must not format new APK resources", legacy.matchAction(request.getAction()));
-        assertFalse("A previous versioned host is also isolated", previous.matchAction(request.getAction()));
-        assertTrue("The currently loaded version can still reply", current.matchAction(request.getAction()));
+        assertFalse("An incompatible legacy channel is isolated", previous.matchAction(request.getAction()));
+        assertTrue("Settings must contact only the matching host revision", current.matchAction(request.getAction()));
         statuses++;
       }
       assertTrue(statuses >= 2);
@@ -53,8 +53,8 @@ public class ModuleUpdateTest {
     });
     assertEquals(1, calls.get());
     assertEquals(-1, reply.code());
-    assertFalse(reply.values().getBoolean("ready", true));
-    assertFalse(reply.values().getBoolean("imeReadable", true));
+    assertFalse(Protocol.hasLiveState(reply.values()));
+    assertTrue(reply.values().isEmpty());
     assertSame(missing, reply.failure());
     assertTrue(reply.report().contains("NotFoundException"));
   }
@@ -67,7 +67,48 @@ public class ModuleUpdateTest {
     });
     assertEquals(-1, reply.code());
     assertTrue(reply.failure() instanceof java.util.IllegalFormatConversionException);
-    assertFalse(reply.values().getBoolean("ready", true));
+    assertFalse(Protocol.hasLiveState(reply.values()));
+  }
+
+  @Test public void notificationCardsAreOnlySavedWhenTheInstalledHookCanApplyThem() throws Exception {
+    try (TestSystemUiReceiver host = new TestSystemUiReceiver()) {
+      String key = "notification_cards";
+      Intent enable = new Intent().putExtra("command", "set").putExtra("feature", key).putExtra("enabled", true);
+      RuntimeReply rejected = host.runtime.handleCommand(enable);
+      assertEquals(Protocol.UNAVAILABLE, rejected.code());
+      assertFalse(host.preferences.contains(key));
+      assertFalse(rejected.values().getBundle(Protocol.AVAILABLE).getBoolean(key));
+      host.enableCardHook();
+      // This host has no diagnostic resources. A formatting error must not undo or hide a write.
+      RuntimeReply applied = host.runtime.handleCommand(enable);
+      assertNotNull(applied.failure());
+      assertEquals(1, applied.code());
+      assertTrue(Protocol.hasLiveState(applied.values()));
+      assertTrue(applied.values().getBoolean(key));
+      assertTrue(host.preferences.getBoolean(key, false));
+      host.runtime.combinedQs.status = R.string.combined_oos;
+      assertEquals(Protocol.UNAVAILABLE, host.runtime.handleCommand(enable).code());
+      assertTrue(host.preferences.getBoolean(key, false));
+      RuntimeReply disabled = host.runtime.handleCommand(enable.putExtra("enabled", false));
+      assertEquals(1, disabled.code());
+      assertFalse(disabled.values().getBoolean(key));
+      assertFalse(host.preferences.getBoolean(key, true));
+    }
+  }
+
+  @Test public void staleOrPartialStatusCannotBeMistakenForLiveSettings() throws Exception {
+    try (TestSystemUiReceiver host = new TestSystemUiReceiver()) {
+      Bundle state = host.runtime.handleCommand(new Intent().putExtra("command", "status")).values();
+      assertTrue(Protocol.hasLiveState(state));
+      state.putString(Protocol.REVISION, "89");
+      assertFalse(Protocol.hasLiveState(state));
+      state.putString(Protocol.REVISION, BuildConfig.SYSTEM_UI_REVISION);
+      state.remove("notification_cards");
+      assertFalse(Protocol.hasLiveState(state));
+      state.putBoolean("notification_cards", false);
+      state.getBundle(Protocol.AVAILABLE).remove("notification_cards");
+      assertFalse(Protocol.hasLiveState(state));
+    }
   }
 
   @Test public void validRepliesKeepTheirOriginalStateAndDiagnostics() {

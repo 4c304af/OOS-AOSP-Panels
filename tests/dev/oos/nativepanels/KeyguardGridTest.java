@@ -46,20 +46,6 @@ public class KeyguardGridTest {
     }
   }
 
-  @Test public void normalPullReversesAlongTheSameParallaxPath() {
-    for (float progress : new float[]{0f, .3f, .7f, .4f, 1f, .7f, 0f}) {
-      float raw = -900f * (1f - progress);
-      assertEquals(raw * .175f, CombinedQsExpansion.parallax(raw, 900f, progress), .001f);
-    }
-  }
-
-  @Test public void preservesAlreadyTranslatedOrUnrelatedMotion() {
-    assertEquals(-70f, CombinedQsExpansion.parallax(-70f, 800f, .5f), 0f);
-    assertEquals(12f, CombinedQsExpansion.parallax(12f, 800f, .4f), 0f);
-    assertEquals(-85f, CombinedQsExpansion.parallax(-85f, 0f, 0f), 0f);
-    assertEquals(-85f, CombinedQsExpansion.parallax(-85f, 800f, Float.NaN), 0f);
-  }
-
   @Test public void aTranslatedHostOnlyReceivesMissingTravelOnBothSidesOfZero() {
     for (float target : new float[]{-100f, -42f, 0f, 28f, 0f, -10f}) {
       assertEquals(0f, ShadeDecor.remainingTranslation(target, target), .001f);

@@ -16,6 +16,50 @@ import org.robolectric.annotation.GraphicsMode;
 @Config(sdk = 35)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 public class CombinedInputTest {
+  public static final class SubscriptionController {
+    int subscription = 1, registrations, removals;
+    public void addIconGroup(LinearLayout group) {
+      View signal = new View(group.getContext());
+      signal.setTag(subscription);
+      group.addView(signal);
+      registrations++;
+    }
+    public void removeIconGroup(LinearLayout group) {
+      group.removeAllViews();
+      removals++;
+    }
+  }
+
+  @Test public void movingHeaderBetweenHostsRebindsCurrentSubscriptionWhileShadeStaysAttached() throws Exception {
+    var activity = org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup().visible().get();
+    LinearLayout shade = new LinearLayout(activity), first = new LinearLayout(activity),
+        second = new LinearLayout(activity), group = new LinearLayout(activity);
+    activity.setContentView(shade);
+    shade.addView(first);
+    shade.addView(second);
+    first.addView(group);
+    var runtime = new PanelRuntime(null, getClass().getClassLoader());
+    var icons = new CombinedStatusIcons(runtime, group, new View(activity));
+    Reflect.field(CombinedStatusIcons.class, "icons").set(icons, group);
+    Reflect.field(CombinedStatusIcons.class, "manager").set(icons, group);
+    var controller = new SubscriptionController();
+    icons.observeGroup(controller, LinearLayout.class);
+    assertEquals(1, group.getChildAt(0).getTag());
+    first.removeView(group);
+    assertTrue(shade.isAttachedToWindow());
+    assertEquals(0, group.getChildCount());
+    controller.subscription = 2;
+    second.addView(group);
+    assertEquals(1, group.getChildCount());
+    assertEquals(2, group.getChildAt(0).getTag());
+    icons.dispose();
+    second.removeView(group);
+    first.addView(group);
+    assertEquals(2, controller.registrations);
+    assertEquals(2, controller.removals);
+    assertEquals(0, group.getChildCount());
+  }
+
   @Test public void cellularInsetUsesLogicalEndAndRestoresOemPadding() {
     for (int direction : new int[]{View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL}) {
       LinearLayout icons = new LinearLayout(org.robolectric.RuntimeEnvironment.getApplication());
@@ -116,6 +160,57 @@ public class CombinedInputTest {
     band.addRoundRect(0, 0, 200, 200, 80, 80, Path.Direction.CW);
     assertFalse(CombinedTouch.excludes(band, 2, 2));
     assertTrue(CombinedTouch.excludes(band, 99, 99));
+  }
+
+  @Test public void lockedGridRevealsTilesAndFooterPastTheNotificationEdgeAndClipsAgainOnClose() {
+    int bottom = 1280, notificationEdge = 381;
+    for (float fraction : new float[]{0f, .5f, 1f, .5f, 0f}) {
+      int top = CombinedQsExpansion.lockedClipTop(notificationEdge, bottom, fraction);
+      Path excluded = new Path();
+      if (top < bottom) excluded.addRoundRect(0, top, 582, bottom, 24, 24, Path.Direction.CW);
+      assertEquals(fraction == 0f, CombinedTouch.excludes(excluded, 200, 430));
+      assertEquals(fraction < 1f, CombinedTouch.excludes(excluded, 200, 1210));
+    }
+  }
+
+  @Test public void lockedClipPreservesAnAlreadyClearGridAndUnmeasuredOrIdleStates() {
+    assertEquals(800, CombinedQsExpansion.lockedClipTop(800, 1280, .5f));
+    assertEquals(1280, CombinedQsExpansion.lockedClipTop(1280, 1280, 1f));
+    assertEquals(-24, CombinedQsExpansion.lockedClipTop(-24, 0, 1f));
+    for (float fraction : new float[]{0f, -1f, Float.NaN, Float.POSITIVE_INFINITY}) {
+      assertEquals(-24, CombinedQsExpansion.lockedClipTop(-24, 1280, fraction));
+    }
+  }
+
+  @Test public void lockedGridKeepsNativeAlphaAndOnlyTheDirectSceneMovesWithoutAWipe() throws Exception {
+    CombinedQsExpansion expansion = new CombinedQsExpansion();
+    java.lang.reflect.Field drag = Reflect.field(CombinedQsExpansion.class, "keyguardDrag");
+    for (float value : new float[]{1f, .75f, .4f, .65f, .1f, 0f}) {
+      drag.setFloat(expansion, value);
+      float panel = expansion.panelFraction(1f); // The underlying keyguard window stays open.
+      float progress = CombinedQsExpansion.lockedProgress(1f, panel);
+      assertEquals(value, progress, 0f);
+      float direct = CombinedQsExpansion.lockedClipProgress(1f, panel, value);
+      assertEquals(value == 0f ? 381 : 1280, CombinedQsExpansion.lockedClipTop(381, 1280, direct));
+      float other = CombinedQsExpansion.lockedClipProgress(1f, panel, Float.NaN);
+      assertEquals(Math.max(381, Math.round(1280 * value)), CombinedQsExpansion.lockedClipTop(381, 1280, other));
+      assertEquals(Math.min(.2f, value), CombinedQsExpansion.lockedProgress(.2f, panel), 0f);
+    }
+    drag.setFloat(expansion, Float.NaN);
+    assertEquals(.4f, expansion.panelFraction(.4f), 0f);
+    assertEquals(.4f, CombinedQsExpansion.lockedProgress(.4f, Float.NaN), 0f);
+  }
+
+  @Test public void directGridStartsAboveTheHeaderAndSliderAndRetracesItsPositionWhenReversed() {
+    for (float density : new float[]{1f, 2.75f}) {
+      for (float p : new float[]{0f, .3f, .58f, .3f, 1f}) {
+        float parent = (p - 1f) * 34f * density;
+        float offset = LockscreenQsMotion.offset(p, LockscreenQsMotion.GRID_DP * density, parent);
+        assertEquals((p - 1f) * 172f * density, offset + parent, .001f);
+        if (p <= .58f) assertEquals(0f, LockscreenQsMotion.chromeAlpha(p), 0f);
+      }
+    }
+    assertEquals(1f, LockscreenQsMotion.chromeAlpha(Float.NaN), 0f);
   }
 
   @Test public void verticalCollapseRemainsAvailableAfterTileDown() {

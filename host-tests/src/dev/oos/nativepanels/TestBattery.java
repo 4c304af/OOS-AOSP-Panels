@@ -14,11 +14,11 @@ public class TestBattery {
   Space spacer=new Space();original.list.add(old);original.list.add(icon);original.list.add(percentage);
   set(h,"original",original);set(h,"icon",icon);set(h,"oldStyle",old);set(h,"attributionSpace",spacer);set(h,"lastForeground",original.color());
   set(h,"currentIcon",Meter.class.getMethod("getBatteryIcon"));set(h,"tintColor",Meter.class.getMethod("color"));set(h,"contentOffset",Meter.class.getMethod("offset"));
-  set(h,"bounds",new RectF());set(h,"chargingIndicator",new HomeStatusBattery.ChargingIndicator(null));set(h,"bodyWidth",24f);set(h,"bodyHeight",13f);set(h,"capWidth",1.5f);
+  set(h,"bounds",new RectF());set(h,"chargingIndicator",new HomeStatusBattery.ChargingIndicator(null));BatteryFrameSize frameSize=new BatteryFrameSize(24f,13f,1.5f);set(h,"frameSize",frameSize);
   ShadeBattery bat=TestGesture.alloc(ShadeBattery.class);set(bat,"view",rendered);set(h,"battery",bat);
   for(int height:new int[]{26,39}) for(int rtl:new int[]{0,1}) {
    h.rtl=rtl;icon.w=height*2;icon.h=height;rendered.h=height;
-   int normal=HomeStatusBattery.normalWidth(height,24,13,1.5f);rendered.w=normal;
+   int normal=frameSize.normalWidth(height);rendered.w=normal;
    h.onPreDraw();float scale=rendered.sx,position=rendered.tx;
    expect(scale>0 && original.list.size()==3,"neutral layout");
    rendered.w+=9;expect(!h.onPreDraw(),"remeasure after plug");
