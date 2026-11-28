@@ -16,7 +16,7 @@ while (!pending.empty) {
     (source =~ /\b[A-Za-z_][A-Za-z_0-9]*\b/).each { word ->
         if (sources.containsKey(word) && !host.containsKey(word)) pending.add(word)
     }
-    (source =~ /(?<![\w.])R\.(string|drawable)\.(\w+)/).each { match ->
+    (source =~ /(?<![\w.])R\.(string|drawable|font)\.(\w+)/).each { match ->
         resourceIds.add(match[1] + '/' + match[2])
         if (match[1] == 'string') strings.add(match[2])
     }
@@ -45,6 +45,9 @@ fileTree('res') {
     host[xml.parentFile.name + '/' + xml.name] = xml.getText('UTF-8').replace('\r\n', '\n')
 }
 fileTree('resources/META-INF/xposed').each { host['xposed/' + it.name] = it.getText('UTF-8').trim() }
+fileTree('res/font').each { font ->
+    host['font/' + font.name] = MessageDigest.getInstance('SHA-256').digest(font.bytes).encodeHex().toString()
+}
 def digest = MessageDigest.getInstance('SHA-256')
 host.each { key, value ->
     digest.update(key.getBytes('UTF-8'))

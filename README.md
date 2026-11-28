@@ -10,7 +10,7 @@
 
 在支援 Modern Xposed API 102 的 LSPosed／Vector 中啟用本模組，將 `com.android.systemui` 加入作用域。在模組首頁開啟 **Android 17 原生狀態欄**，再重啟系統介面。
 
-- 收合狀態欄套用 Android 17 的 Wi‑Fi、單卡訊號圖案與本專案的 AOSP 電池元件。時間直接載入系統內的 AOSP Roboto 字型檔，以半粗字重顯示，避開 ColorOS 主題字型別名；快速設定時鐘使用 0.01em 字距。鎖定畫面也會套用 AOSP 電池。
+- 收合狀態欄套用 Android 17 的 Wi‑Fi、單卡訊號圖案與本專案的 AOSP 電池元件。時間數字使用電池電量的同一套字形，減輕筆畫並維持數字高度，避開 ColorOS 主題字型；快速設定時鐘使用 0.01em 字距。鎖定畫面也會套用 AOSP 電池。
 - 行動網路類型沿用系統實際的電信商與註冊狀態，在 Wi‑Fi 成為預設網路時仍顯示；無服務、飛航模式與衛星訊號時隱藏。5G、LTE 等標籤使用 Android 17 的更新版矢量圖形及 12sp 高度，排在單卡訊號條之前，隨系統圖示切換明暗。
 - 訊號與 Wi‑Fi 使用 12sp 高度，網路標籤與訊號格相隔 6sp，兩類圖示組各使用 3sp 的外側間距。Compose 電池沿用原生 13sp 畫布，不再受 ColorOS 槽位與額外 0.8 縮放影響；充電標記在量度時預留寬度。
 - 展開控制中心時，在 ColorOS 選擇合併模式，並開啟模組的 **AOSP 快速設定**。頁首會使用同一套訊號圖案與電池，並依照 Android 17 的頁首尺寸與間距呈現大時鐘、日期和狀態圖示。
@@ -20,6 +20,8 @@
 已對照 PLK110 `17.0.0.105(CN01)` 的 SystemUI APK 檢查接入點。實際顯示、動畫以及其他固件版本仍需實機驗證。測試 APK 使用調試簽名，若已裝有不同簽名的上游 APK，需要先卸載原 APK，再安裝並重新選擇作用域。
 
 使用 JDK 17 和 Android SDK 36 執行 `./gradlew assembleDebug`（Windows 為 `gradlew.bat assembleDebug`）。APK 輸出至 `build/outputs/apk/debug/`。
+
+時間字型由 `tools/generate_battery_clock_font.py` 從 `tools/battery_clock_glyphs.json` 產生。重建字型時，在隔離的 Python 環境安裝 `tools/font-requirements.txt` 後執行該腳本；一般 APK 組建直接使用庫內的字型檔。
 
 展開頁首的尺寸參考 [AOSP Android 17.0.0_r1 的 ShadeHeader](https://github.com/aosp-mirror/platform_frameworks_base/blob/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/ShadeHeader.kt#L285)。
 

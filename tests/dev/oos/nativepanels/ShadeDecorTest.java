@@ -295,7 +295,7 @@ public class ShadeDecorTest {
       LinearLayout row = (LinearLayout) host.getChildAt(0);
       for (TextView clock : new TextView[]{(TextView) row.getChildAt(0), (TextView) host.getChildAt(1)}) {
         if (enabled) {
-          assertEquals(600, clock.getTypeface().getWeight());
+          assertEquals(400, clock.getTypeface().getWeight());
           assertFalse(clock.getTypeface().isItalic());
           assertEquals(.01f, clock.getLetterSpacing(), 0f);
           assertFalse(ClockTypeface.applyQs(clock));

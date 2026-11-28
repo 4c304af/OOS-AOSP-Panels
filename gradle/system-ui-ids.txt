@@ -14,6 +14,7 @@ dev.oos.nativepanels:drawable/aosp17_h_plus_mobiledata = 0x7f070083
 dev.oos.nativepanels:drawable/aosp17_lte_mobiledata = 0x7f070084
 dev.oos.nativepanels:drawable/aosp17_lte_plus_mobiledata = 0x7f070085
 dev.oos.nativepanels:drawable/ic_mobile_level_list = 0x7f0700c7
+dev.oos.nativepanels:font/battery_clock = 0x7f130000
 dev.oos.nativepanels:string/app_name = 0x7f0f002a
 dev.oos.nativepanels:string/auto_disabled = 0x7f0f002c
 dev.oos.nativepanels:string/automatic_brightness = 0x7f0f002d

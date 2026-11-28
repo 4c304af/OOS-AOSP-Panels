@@ -9,3 +9,14 @@ The aosp17_*_mobiledata.xml resources are the same revision's updated RAT artwor
 
 Source revision 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d, Android 17.0.0_r1
 https://android.googlesource.com/platform/frameworks/base/+/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/packages/SettingsLib/res/drawable/
+
+Battery clock font
+
+res/font/battery_clock.otf is derived from the Zero through Nine paths in
+BatteryGlyph.kt, Copyright (C) 2025 The Android Open Source Project, Apache-2.0.
+The conversion preserves the battery digit design with lighter strokes and
+adds a matching colon and whitespace for clocks. Its height is normalized
+after the inward outline offset.
+The original paths and reproducible generator are under tools/.
+
+https://android.googlesource.com/platform/frameworks/base/+/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/shared/ui/BatteryGlyph.kt
