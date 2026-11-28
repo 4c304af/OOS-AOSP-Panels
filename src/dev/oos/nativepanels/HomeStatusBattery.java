@@ -225,6 +225,7 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
   }
 
   private int requiredExtraWidth;
+  private float nativeScale = 1f;
 
   private boolean updateBatteryArtwork() {
     if (failed || original.getVisibility() != VISIBLE) return false;
@@ -248,16 +249,22 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
       View view = battery.view;
       if (view.getWidth() <= 0 || view.getHeight() <= 0) return false;
       int neutralWidth = frameSize.normalWidth(view.getHeight());
-      float scale = BatteryFrameSize.fitScale(neutralWidth, view.getHeight(), bounds.width(), bounds.height(), nativeStatusBar);
+      float scale = nativeStatusBar ? nativeScale
+          : BatteryFrameSize.fitScale(neutralWidth, view.getHeight(), bounds.width(), bounds.height());
       if (scale <= 0) return false;
       view.setScaleX(scale);
       view.setScaleY(scale);
-      requiredExtraWidth = extraWidth(view.getWidth(), neutralWidth, scale);
-      float left = bounds.centerX() - neutralWidth * scale / 2f;
-      if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) left -= (view.getWidth() - neutralWidth) * scale;
+      // Native measurement owns the full canvas, including the attribution. It
+      // does not need to mutate the hidden OEM meter's width during pre-draw.
+      requiredExtraWidth = nativeStatusBar ? 0 : extraWidth(view.getWidth(), neutralWidth, scale);
+      boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+      float left = nativeStatusBar ? nativeArtworkLeft(bounds.left, bounds.right, view.getWidth(), scale, rtl)
+          : bounds.centerX() - neutralWidth * scale / 2f;
+      if (!nativeStatusBar && rtl) left -= (view.getWidth() - neutralWidth) * scale;
       view.setTranslationX(artworkLeft(left, keyguard && !nativeStatusBar,
           getLayoutDirection() == LAYOUT_DIRECTION_RTL, getResources().getDisplayMetrics().density));
-      view.setTranslationY(bounds.centerY() - view.getHeight() * scale / 2f);
+      view.setTranslationY((nativeStatusBar ? getHeight() / 2f : bounds.centerY())
+          - view.getHeight() * scale / 2f);
       view.setAlpha(artworkAlpha(color, original.getAlpha(), slot.getAlpha()));
       return true;
     } catch (Exception e) { fallback(e); return false; }
@@ -369,15 +376,44 @@ final class HomeStatusBattery extends FrameLayout implements ViewTreeObserver.On
     return centered + (rtl ? shift : -shift);
   }
 
+  static int nativeWidth(int meterWidth, int oemSlotWidth, int artworkWidth, float scale) {
+    return Math.max(0, meterWidth - oemSlotWidth)
+        + (int)Math.ceil(Math.max(0, artworkWidth) * scale);
+  }
+
+  static float nativeArtworkLeft(float oemLeft, float oemRight, int artworkWidth, float scale, boolean rtl) {
+    // Anchor to the edge beside the external percentage. The invisible OEM
+    // glyph can have any width without leaving a hole or moving that text.
+    return rtl ? oemLeft : oemRight - artworkWidth * scale;
+  }
+
   @Override protected void onMeasure(int width, int height) {
     if (original.getVisibility() == GONE) { setMeasuredDimension(0,0); return; }
     original.measure(width, height);
     int unbounded = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
     battery.view.measure(unbounded, unbounded);
     int contentWidth = original.getMeasuredWidth();
-    int widthNeeded = failed || nativeStatusBar ? contentWidth
-        : slotWidth(contentWidth, getResources().getDisplayMetrics().density);
-    setMeasuredDimension(resolveSize(widthNeeded, width), original.getMeasuredHeight());
+    int widthNeeded;
+    if (!failed && nativeStatusBar && battery.view.getMeasuredWidth() > 0 && battery.view.getMeasuredHeight() > 0
+        && (icon.getVisibility() == VISIBLE || oldStyle.getVisibility() == VISIBLE)) {
+      View slot = icon.getVisibility() == VISIBLE ? icon : oldStyle;
+      int oemSlotWidth = slot.getVisibility() == VISIBLE ? slot.getMeasuredWidth() : 0;
+      int remaining = Math.max(0, contentWidth - oemSlotWidth);
+      int availableWidth = MeasureSpec.getMode(width) == MeasureSpec.UNSPECIFIED
+          ? battery.view.getMeasuredWidth() : Math.max(0, MeasureSpec.getSize(width) - remaining);
+      int availableHeight = MeasureSpec.getMode(height) == MeasureSpec.UNSPECIFIED
+          ? battery.view.getMeasuredHeight() : MeasureSpec.getSize(height);
+      nativeScale = BatteryFrameSize.intrinsicScale(battery.view.getMeasuredWidth(),
+          battery.view.getMeasuredHeight(), availableWidth, availableHeight);
+      widthNeeded = nativeWidth(contentWidth, oemSlotWidth, battery.view.getMeasuredWidth(), nativeScale);
+    } else {
+      widthNeeded = failed || nativeStatusBar ? contentWidth
+          : slotWidth(contentWidth, getResources().getDisplayMetrics().density);
+    }
+    int heightNeeded = !failed && nativeStatusBar
+        ? Math.max(original.getMeasuredHeight(), (int)Math.ceil(battery.view.getMeasuredHeight() * nativeScale))
+        : original.getMeasuredHeight();
+    setMeasuredDimension(resolveSize(widthNeeded, width), resolveSize(heightNeeded, height));
   }
 
   @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {

@@ -1,14 +1,13 @@
 package dev.oos.nativepanels;
 
 import android.content.Context;
-import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.DrawableWrapper;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -48,7 +47,8 @@ final class Android17StatusBar {
 
   String report() {
     return "Android 17 status bar: enabled=" + enabled + " clock=" + clockStyled
-        + " wifi=" + wifiStyled + " mobile=" + mobileStyled + " type=" + lastNetworkType;
+        + " wifi=" + wifiStyled + " mobile=" + mobileStyled + " type=" + lastNetworkType
+        + " font=" + ClockTypeface.report() + " icons=12sp";
   }
 
   void installClock() throws ReflectiveOperationException {
@@ -63,12 +63,7 @@ final class Android17StatusBar {
             TextView view = (TextView) chain.getThisObject();
             if (inPhoneStatusBar(view, bar) && enabled(view.getContext())) {
               // StatClock measures with firmware dimensions and caches the minute width for transitions.
-              Typeface face = Typeface.create("variable-label-large-emphasized", Typeface.NORMAL);
-              if (face.equals(Typeface.DEFAULT)) face = Typeface.create("sans-serif-medium", Typeface.NORMAL);
-              if (!face.equals(view.getTypeface())) {
-                view.setTypeface(face);
-                refreshWidth.invoke(view);
-              }
+              if (ClockTypeface.apply(view)) refreshWidth.invoke(view);
               clockStyled = true;
             }
             return result;
@@ -84,6 +79,7 @@ final class Android17StatusBar {
 
   void installWifi() throws ReflectiveOperationException {
     if (Build.VERSION.SDK_INT != 37) return;
+    installIconConfiguration("com.android.systemui.statusbar.pipeline.wifi.ui.view.ModernStatusBarWifiView", false);
     String model = "com.android.systemui.statusbar.pipeline.wifi.shared.model.WifiNetworkModel";
     String wifiIcon = "com.android.systemui.statusbar.pipeline.wifi.ui.model.WifiIcon";
     Class<?> active = runtime.type(model + "$Active");
@@ -118,7 +114,11 @@ final class Android17StatusBar {
           int signalId = icon.getResources().getIdentifier("wifi_signal", "id", Protocol.TARGET);
           Drawable host = icon.getDrawable();
           if (signalId != 0 && icon.getId() == signalId && hasIntrinsicSize(host)) {
-            icon.setImageDrawable(new SlotDrawable(icon.getContext().getDrawable(artId), host));
+            Drawable art = icon.getContext().getDrawable(artId);
+            icon.setImageDrawable(StatusIconMetrics.signal(icon, art,
+                art.getIntrinsicWidth() / (float)art.getIntrinsicHeight()));
+            View group = StatusIconMetrics.namedAncestor(icon, "wifi_group");
+            if (group != null) StatusIconMetrics.group(group);
             wifiStyled = true;
           }
           return result;
@@ -147,6 +147,7 @@ final class Android17StatusBar {
 
   void installMobile() throws ReflectiveOperationException {
     if (Build.VERSION.SDK_INT != 37) return;
+    installIconConfiguration("com.android.systemui.statusbar.pipeline.mobile.ui.view.ModernStatusBarMobileView", true);
     Class<?> binding = runtime.type("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.AbstractOplusStatusBarMobileViewBinder$Binding");
     String signal = "com.android.systemui.statusbar.pipeline.mobile.domain.model.SignalIconModel";
     Class<?> cellular = runtime.type(signal + "$CellularTypeIconModel$Cellular");
@@ -177,10 +178,11 @@ final class Android17StatusBar {
 
           DrawableWrapper glyph = drawable.newInstance(icon.getContext());
           // Use the AOSP artwork and the host's level decoding and carrier-change animation.
-          glyph.setDrawable(runtime.moduleResources(icon.getContext()).getDrawable(R.drawable.ic_mobile_level_list, null));
+          Drawable art = runtime.moduleResources(icon.getContext()).getDrawable(R.drawable.ic_mobile_level_list, null);
+          glyph.setDrawable(art);
           int packed = (boolean) carrierChange.invoke(model) ? (3 << 16) | (levels << 8)
               : (int) state.invoke(null, level, levels, (boolean) showExclamation.invoke(model));
-          Drawable replacement = new SlotDrawable(glyph, host);
+          Drawable replacement = StatusIconMetrics.mobileSignal(icon, glyph, art, packed);
           icon.setImageDrawable(replacement);
           replacement.setLevel(packed);
           mobileStyled = true;
@@ -224,11 +226,28 @@ final class Android17StatusBar {
     Class<?> viewModel = runtime.type(models + "OplusMobileIconViewModel");
     Class<?> textModel = runtime.type("com.android.systemui.statusbar.pipeline.mobile.domain.model.OplusNetworkTypeTextModel");
     Method bind = os17.getDeclaredMethod("bindNetworkTypeText", textModel);
+    Method combo = os17.getMethod("getMobileComboReal");
+    Method mobileGroup = os17.getMethod("getMobileGroupView");
+    Method mobileSignal = os17.getMethod("getIconView");
+    MobileNetworkTypeOrder order = new MobileNetworkTypeOrder(
+        runtime.type("androidx.constraintlayout.widget.ConstraintLayout$LayoutParams"));
     networkTypeBinding = new NetworkTypeBinding(os17, cellular, binding.getMethod("getOplusViewModel"),
         os17.getMethod("getMobileTypeText"), viewModel.getMethod("getIcon"),
         viewModel.getMethod("getNetworkTypeText"),
         runtime.type("kotlinx.coroutines.flow.StateFlow").getMethod("getValue"),
         Reflect.field(cellular, "isInService"), carrierChange, bind);
+    runtime.module.hook(os17.getDeclaredMethod("initViews", int.class))
+        .setId("native-panels:android17-network-order")
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Object result = chain.proceed();
+          Object owner = chain.getThisObject();
+          TextView text = (TextView) networkTypeBinding.text.invoke(owner);
+          if (enabled(text.getContext())) {
+            order.apply((ViewGroup) combo.invoke(owner), text);
+            StatusIconMetrics.mobile((View) mobileGroup.invoke(owner), text, (ImageView) mobileSignal.invoke(owner));
+          }
+          return result;
+        });
     runtime.module.hook(bind).setId("native-panels:android17-network-text")
         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
           Object owner = chain.getThisObject();
@@ -237,6 +256,9 @@ final class Android17StatusBar {
           boolean show = networkTypeBinding.allowed(owner, text.getContext());
           Object result = chain.proceed(new Object[]{show ? chain.getArg(0) : null});
           networkTypeArtwork.apply(text, runtime.moduleResources(text.getContext()));
+          // New OS17 groups and later binder updates retain the same native-owned chain.
+          order.apply((ViewGroup) combo.invoke(owner), text);
+          StatusIconMetrics.mobile((View) mobileGroup.invoke(owner), text, (ImageView) mobileSignal.invoke(owner));
           lastNetworkType = text.getVisibility() == View.VISIBLE && text.length() > 0
               ? text.getText().toString() : (show ? "empty-native-model" : "hidden-native-state");
           return result;
@@ -297,35 +319,25 @@ final class Android17StatusBar {
     return drawable != null && drawable.getIntrinsicWidth() > 0 && drawable.getIntrinsicHeight() > 0;
   }
 
+  private void installIconConfiguration(String name, boolean mobile) throws ReflectiveOperationException {
+    runtime.module.hook(runtime.type(name).getDeclaredMethod("onConfigurationChanged",
+            android.content.res.Configuration.class))
+        .setId("native-panels:android17-icon-config-" + (mobile ? "mobile" : "wifi"))
+        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+          Object result = chain.proceed();
+          View root = (View) chain.getThisObject();
+          if (enabled(root.getContext())) {
+            StatusIconMetrics.configuration(root, mobile);
+            if (mobile) {
+              int id = root.getResources().getIdentifier("mobile_type_text", "id", Protocol.TARGET);
+              if (id != 0 && root.findViewById(id) instanceof TextView type)
+                networkTypeArtwork.apply(type, runtime.moduleResources(root.getContext()));
+            }
+          }
+          return result;
+        });
+  }
+
   private record WifiArtwork(WeakReference<Object> icon, int resourceId) {}
 
-  // The vendor uses wrap_content for both ImageViews, so intrinsic size also controls neighboring positions.
-  static final class SlotDrawable extends DrawableWrapper {
-    private final int width;
-    private final int height;
-
-    SlotDrawable(Drawable art, Drawable host) {
-      super(art);
-      width = host.getIntrinsicWidth();
-      height = host.getIntrinsicHeight();
-    }
-
-    @Override public int getIntrinsicWidth() { return width; }
-    @Override public int getIntrinsicHeight() { return height; }
-
-    @Override protected void onBoundsChange(Rect bounds) {
-      Drawable art = getDrawable();
-      if (!hasIntrinsicSize(art) || bounds.isEmpty()) {
-        super.onBoundsChange(bounds);
-        return;
-      }
-      float scale = Math.min(1f, Math.min(bounds.width() / (float) art.getIntrinsicWidth(),
-          bounds.height() / (float) art.getIntrinsicHeight()));
-      int artWidth = Math.round(art.getIntrinsicWidth() * scale);
-      int artHeight = Math.round(art.getIntrinsicHeight() * scale);
-      int left = bounds.left + (bounds.width() - artWidth) / 2;
-      int top = bounds.top + (bounds.height() - artHeight) / 2;
-      art.setBounds(left, top, left + artWidth, top + artHeight);
-    }
-  }
 }

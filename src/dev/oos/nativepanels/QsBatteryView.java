@@ -5,16 +5,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
-/** Fit the Compose battery to the glyph that OOS sized for this display's header. */
+/** Use native Android 17 geometry, or fit the battery to the older OOS header slot. */
 final class QsBatteryView extends FrameLayout {
   private final View artwork, icon, oldStyle;
   private final BatteryFrameSize frame;
-  private final boolean compact;
+  private final boolean nativeStatusBar;
   private int slotWidth, slotHeight;
   private final OnLayoutChangeListener slotLayout = (v, l, t, r, b, ol, ot, or, ob) -> refreshSlot();
 
   static View forHeader(PanelRuntime runtime, Object controller, View artwork) {
-    boolean compact = runtime != null && runtime.statusBar.enabled(artwork.getContext());
+    boolean nativeStatusBar = runtime != null && runtime.statusBar.enabled(artwork.getContext());
     try {
       if (Reflect.field(controller.getClass(), "header").get(controller) instanceof View header) {
         View meter = namedChild(header, "batteryRemainingIcon");
@@ -22,13 +22,13 @@ final class QsBatteryView extends FrameLayout {
           View icon = namedChild(meter, "battery_icon_view");
           View oldStyle = namedChild(meter, "battery_content");
           if (icon != null && oldStyle != null)
-            return new QsBatteryView(artwork, icon, oldStyle, BatteryFrameSize.read(runtime), compact);
+            return new QsBatteryView(artwork, icon, oldStyle, BatteryFrameSize.read(runtime), nativeStatusBar);
         }
       }
     } catch (ReflectiveOperationException | RuntimeException unavailable) {
       // An alternate header can still use SystemUI's intrinsic Compose battery size.
     }
-    return compact ? new QsBatteryView(artwork, null, null, null, true) : artwork;
+    return nativeStatusBar ? new QsBatteryView(artwork, null, null, null, true) : artwork;
   }
 
   private static View namedChild(View parent, String name) {
@@ -40,13 +40,13 @@ final class QsBatteryView extends FrameLayout {
     this(artwork, icon, oldStyle, frame, false);
   }
 
-  QsBatteryView(View artwork, View icon, View oldStyle, BatteryFrameSize frame, boolean compact) {
+  QsBatteryView(View artwork, View icon, View oldStyle, BatteryFrameSize frame, boolean nativeStatusBar) {
     super(artwork.getContext());
     this.artwork = artwork;
     this.icon = icon;
     this.oldStyle = oldStyle;
     this.frame = frame;
-    this.compact = compact;
+    this.nativeStatusBar = nativeStatusBar;
     artwork.setPivotX(0f);
     artwork.setPivotY(0f);
     addView(artwork, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
@@ -95,9 +95,9 @@ final class QsBatteryView extends FrameLayout {
     int unbounded = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
     artwork.measure(unbounded, unbounded);
     int width = artwork.getMeasuredWidth(), height = artwork.getMeasuredHeight();
-    float scale = frame == null ? 0f
-        : BatteryFrameSize.fitScale(frame.normalWidth(height), height, slotWidth, slotHeight, compact);
-    if (scale <= 0f) scale = compact ? .80f : 1f;
+    float scale = nativeStatusBar || frame == null ? 1f
+        : BatteryFrameSize.fitScale(frame.normalWidth(height), height, slotWidth, slotHeight);
+    if (scale <= 0f) scale = 1f;
     if (width > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED)
       scale = Math.min(scale, MeasureSpec.getSize(widthSpec) / (float)width);
     if (height > 0 && MeasureSpec.getMode(heightSpec) != MeasureSpec.UNSPECIFIED)

@@ -22,11 +22,24 @@ public class StatusBatterySizeTest {
     assertEquals(0f, BatteryFrameSize.fitScale(20, 10, 0, 5), .0001f);
   }
 
-  @Test public void nativeBatteryStaysCompactAndFitsSmallerMeasuredSlots() {
-    assertEquals(.8f, BatteryFrameSize.fitScale(20, 12, 25, 12, true), .0001f);
-    assertEquals(.8f, BatteryFrameSize.fitScale(20, 12, 40, 24, true), .0001f);
-    assertEquals(.64f, BatteryFrameSize.fitScale(20, 12, 16, 12, true), .0001f);
-    assertEquals(.6f, BatteryFrameSize.fitScale(20, 12, 20, 9, true), .0001f);
-    assertEquals(0f, BatteryFrameSize.fitScale(20, 12, 0, 12, true), .0001f);
+  @Test public void nativeBatteryOnlyShrinksForRealParentConstraintsAndNeverEnlarges() {
+    assertEquals(1f, BatteryFrameSize.intrinsicScale(27, 13, 27, 13), .0001f);
+    assertEquals(1f, BatteryFrameSize.intrinsicScale(27, 13, 100, 50), .0001f);
+    assertEquals(.5f, BatteryFrameSize.intrinsicScale(27, 13, 13.5f, 13), .0001f);
+    assertEquals(.5f, BatteryFrameSize.intrinsicScale(27, 13, 27, 6.5f), .0001f);
+    assertEquals(0f, BatteryFrameSize.intrinsicScale(27, 13, 0, 13), .0001f);
+  }
+
+  @Test public void nativeHomeReservesActualCanvasInsteadOfTheOemSlotAndKeepsExternalPercent() {
+    // The same 16px of external percentage/padding surrounds different OEM glyphs.
+    assertEquals(43, HomeStatusBattery.nativeWidth(40, 24, 27, 1f));
+    assertEquals(43, HomeStatusBattery.nativeWidth(56, 40, 27, 1f));
+    assertEquals(43, HomeStatusBattery.nativeWidth(28, 12, 27, 1f));
+    // Charging attribution receives its full width in the measurement pass.
+    assertEquals(49, HomeStatusBattery.nativeWidth(40, 24, 33, 1f));
+    assertEquals(33, HomeStatusBattery.nativeWidth(40, 24, 33, .5f));
+    // LTR's original meter shifts by +3; RTL keeps the external text at x=0.
+    assertEquals(0f, HomeStatusBattery.nativeArtworkLeft(3, 27, 27, 1f, false), 0f);
+    assertEquals(16f, HomeStatusBattery.nativeArtworkLeft(16, 40, 27, 1f, true), 0f);
   }
 }

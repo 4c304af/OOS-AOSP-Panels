@@ -24,7 +24,7 @@ public class Android17StatusBarTest {
     assertFalse(Android17StatusBar.allowNetworkType(true, true, false, true));
   }
 
-  @Test public void replacingArtKeepsTheWrapContentSlotAndCentersTheGlyph() {
+  @Test public void replacingArtUsesTheNativeRectangleInsteadOfTheOemSlot() {
     ImageView image = new ImageView(RuntimeEnvironment.getApplication());
     Glyph host = new Glyph(32, 32);
     image.setImageDrawable(host);
@@ -33,24 +33,35 @@ public class Android17StatusBarTest {
     assertEquals(32, image.getMeasuredHeight());
 
     Glyph art = new Glyph(34, 24);
-    var replacement = new Android17StatusBar.SlotDrawable(art, host);
+    var replacement = StatusIconMetrics.signal(image, art, 17f / 12f);
     image.setImageDrawable(replacement);
     image.measure(0, 0);
-    assertEquals(32, image.getMeasuredWidth());
-    assertEquals(32, image.getMeasuredHeight());
+    int height = StatusIconMetrics.sp(image, 12f);
+    int width = Math.round(height * 17f / 12f);
+    assertEquals(width, image.getMeasuredWidth());
+    assertEquals(height, image.getMeasuredHeight());
 
-    image.layout(0, 0, 32, 32);
-    assertEquals(new Rect(0, 4, 32, 27), art.getBounds());
+    image.layout(0, 0, width, height);
+    assertEquals(new Rect(0, 0, width, height), art.getBounds());
   }
 
-  @Test public void largerVendorSlotDoesNotEnlargeTheAndroidArtwork() {
-    Glyph host = new Glyph(60, 36);
+  @Test public void largerVendorSlotDoesNotEnlargeOrAddWhitespaceToTheAndroidArtwork() {
+    ImageView image = new ImageView(RuntimeEnvironment.getApplication());
+    image.setLayoutParams(new android.widget.FrameLayout.LayoutParams(60, 36));
+    image.setMinimumWidth(60);
+    image.setPadding(3, 4, 5, 6);
     Glyph art = new Glyph(34, 24);
-    var replacement = new Android17StatusBar.SlotDrawable(art, host);
-    replacement.setBounds(0, 0, 60, 36);
-    assertEquals(60, replacement.getIntrinsicWidth());
-    assertEquals(36, replacement.getIntrinsicHeight());
-    assertEquals(new Rect(13, 6, 47, 30), art.getBounds());
+    var replacement = StatusIconMetrics.signal(image, art, 17f / 12f);
+    image.setImageDrawable(replacement);
+    image.measure(0, 0);
+    int height = StatusIconMetrics.sp(image, 12f);
+    int width = Math.round(height * 17f / 12f);
+    assertEquals(width, image.getMeasuredWidth());
+    assertEquals(height, image.getMeasuredHeight());
+    assertEquals(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, image.getLayoutParams().width);
+    assertEquals(height, image.getLayoutParams().height);
+    assertEquals(0, image.getPaddingLeft());
+    assertEquals(0, image.getPaddingRight());
   }
 
   private static final class Glyph extends ColorDrawable {

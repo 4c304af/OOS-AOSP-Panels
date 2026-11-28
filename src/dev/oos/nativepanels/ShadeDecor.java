@@ -150,6 +150,10 @@ final class ShadeDecor implements View.OnAttachStateChangeListener, ViewTreeObse
     header.setGravity(Gravity.CENTER_VERTICAL);
     clock = headerClock(context);
     expandedClock = headerClock(context);
+    if (aospStatusBar) {
+      ClockTypeface.applyQs(clock);
+      ClockTypeface.applyQs(expandedClock);
+    }
     expandedClock.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
     expandedClock.setSingleLine(true);
     expandedClock.setIncludeFontPadding(false);

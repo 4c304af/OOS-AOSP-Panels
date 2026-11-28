@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Insets;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.os.BatteryManager;
 import android.view.DisplayCutout;
@@ -221,12 +222,20 @@ public class ShadeDecorTest {
     public void launchClockActivity() { launches++; }
   }
 
-  @Test public void onlyTheVisibleClockOpensTheSystemClockAction() {
+  @Test public void onlyTheVisibleClockOpensTheSystemClockAction() throws Exception {
+    checkVisibleClockAction(false);
+  }
+
+  @Test public void android17SemiboldClocksKeepTheVisibleClockAction() throws Exception {
+    checkVisibleClockAction(true);
+  }
+
+  private void checkVisibleClockAction(boolean android17) throws Exception {
     var activity = org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup().get();
     var runtime = new PanelRuntime(null, getClass().getClassLoader());
     var graph = new ClockGraph();
     runtime.graph = graph;
-    ShadeDecor decor = new ShadeDecor(new FrameLayout(activity), null, runtime);
+    ShadeDecor decor = clockDecor(new FrameLayout(activity), runtime, android17);
     decor.install();
     FrameLayout host = decor.createHeaderHost(activity);
     activity.setContentView(host);
@@ -273,6 +282,46 @@ public class ShadeDecorTest {
     decor.positionHeader(1f, 0f);
     assertFalse(large.hasOnClickListeners());
     decor.dispose();
+  }
+
+  @Test public void aospFamilyWeightAndTrackingOnlyChangeEnabledAndroid17Clocks() throws Exception {
+    Context context = RuntimeEnvironment.getApplication();
+    Typeface nativeFace = new TextClock(context).getTypeface();
+    for (boolean enabled : new boolean[]{false, true}) {
+      var runtime = new PanelRuntime(null, getClass().getClassLoader());
+      ShadeDecor decor = clockDecor(new FrameLayout(context), runtime, enabled);
+      decor.install();
+      FrameLayout host = decor.createHeaderHost(context);
+      LinearLayout row = (LinearLayout) host.getChildAt(0);
+      for (TextView clock : new TextView[]{(TextView) row.getChildAt(0), (TextView) host.getChildAt(1)}) {
+        if (enabled) {
+          assertEquals(600, clock.getTypeface().getWeight());
+          assertFalse(clock.getTypeface().isItalic());
+          assertEquals(.01f, clock.getLetterSpacing(), 0f);
+          assertFalse(ClockTypeface.applyQs(clock));
+        } else {
+          assertEquals(nativeFace, clock.getTypeface());
+          assertEquals(new TextClock(context).getLetterSpacing(), clock.getLetterSpacing(), 0f);
+        }
+      }
+      assertEquals(nativeFace, ((TextView) row.getChildAt(1)).getTypeface());
+      assertEquals(new TextView(context).getTypeface(), ((TextView) row.getChildAt(2)).getTypeface());
+      decor.dispose();
+    }
+  }
+
+  private static ShadeDecor clockDecor(FrameLayout frame, PanelRuntime runtime, boolean enabled)
+      throws Exception {
+    var setting = Android17StatusBar.class.getDeclaredField("enabled");
+    setting.setAccessible(true);
+    setting.set(runtime.statusBar, enabled);
+    int nativeSdk = android.os.Build.VERSION.SDK_INT;
+    // Run the API-37 preference path on Robolectric's available API-35 framework.
+    org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", 37);
+    try { return new ShadeDecor(frame, null, runtime); }
+    finally {
+      org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", nativeSdk);
+    }
   }
 
   private static void dispatchTap(View host, float x, float y, int endAction) {

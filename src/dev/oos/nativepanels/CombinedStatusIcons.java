@@ -84,7 +84,8 @@ final class CombinedStatusIcons implements View.OnAttachStateChangeListener {
 
   void updateSpacing() {
     if (batteryHost != null && batteryHost.getLayoutParams() instanceof LinearLayout.LayoutParams batteryParams) {
-      int gap = Math.round(2f * row.getResources().getDisplayMetrics().density);
+      int gap = r.statusBar.enabled(row.getContext()) ? StatusIconMetrics.sp(row, 3f)
+          : Math.round(2f * row.getResources().getDisplayMetrics().density);
       if (gap != batteryParams.getMarginStart()) {
         batteryParams.setMarginStart(gap);
         batteryHost.setLayoutParams(batteryParams);
